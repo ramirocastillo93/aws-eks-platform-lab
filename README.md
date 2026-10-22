@@ -4,7 +4,7 @@
 
 This is a hands-on AWS platform engineering lab built on existing GCP, GKE, Terraform, Kubernetes, and SRE experience. The long-term goal is a production-inspired EKS platform, developed in small, observable increments. The current increment defines the network foundation and the Terraform delivery path. It does **not** define or deploy EKS, EC2 nodes, a NAT Gateway, RDS, ElastiCache, or an application.
 
-**Status:** Bootstrap has been applied: the S3 state bucket has versioning, default encryption, and public-access blocking, and separate plan/apply IAM users with policies exist. Access keys were created outside Terraform and configured as GitHub secrets by the repository owner. The first `main` workflow apply succeeded, and the VPC, four subnets across two Availability Zones, route tables, and Internet Gateway were verified in AWS. The PR plan path and GitHub environment branch restriction have not been verified. The initial bootstrap attempt failed because the project's AWS service control policy denied GitHub OIDC provider creation; the IAM user design was then applied successfully. The selected Region is `us-east-2` (Ohio). Both Terraform roots reject another Region.
+**Status:** Bootstrap has been applied: the S3 state bucket has versioning, default encryption, and public-access blocking, and separate plan/apply IAM users with policies exist. Access keys were created outside Terraform and configured as GitHub secrets by the repository owner. The first `main` workflow apply succeeded, and the VPC, four subnets across two Availability Zones, route tables, and Internet Gateway were verified in AWS. The PR plan and merge-only apply workflow is defined but has not yet run. The initial bootstrap attempt failed because the project's AWS service control policy denied GitHub OIDC provider creation; the IAM user design was then applied successfully. The selected Region is `us-east-2` (Ohio). Both Terraform roots reject another Region.
 
 ## Architecture
 
@@ -12,7 +12,7 @@ The diagram shows **deployed and verified resources**. It will grow only when a 
 
 ```mermaid
 flowchart LR
-    gh[GitHub Actions<br/>PR plan / main apply]
+    gh[GitHub Actions<br/>PR plan / merge apply]
 
     subgraph aws[AWS project]
         iam[Separate IAM users and policies<br/>for plan and apply: deployed]
@@ -55,7 +55,7 @@ The public subnets have an Internet Gateway route but do not automatically assig
 | Amazon S3 | Versioned, encrypted Terraform state with native S3 lockfiles |
 | IAM and GitHub Actions secrets | Separate programmatic plan and apply identities |
 | VPC, subnets, routes, Internet Gateway | Two-zone network foundation |
-| GitHub Actions | Validate and plan same-repository PRs; plan and apply on `main` pushes |
+| GitHub Actions | Validate and fingerprint same-repository PR plans; compare and apply after merge |
 
 ## Design Decisions
 
@@ -71,7 +71,8 @@ The design is informed by the security, operational excellence, reliability, and
 ## Repository Structure
 
 ```text
-.github/workflows/terraform.yml     PR plan and main-branch apply
+.github/workflows/terraform.yml     PR plan and merge-only apply
+.github/scripts/terraform_plan_review.py  Plan fingerprint and merge checks
 terraform/bootstrap/                Local bootstrap: S3 state and IAM users
 terraform/platform/                 S3-backed VPC foundation
 README.md                           Current design and runbook
@@ -84,7 +85,7 @@ Provider dependency locks are tracked in each Terraform root. `.terraform/`, sta
 
 - An AWS project whose selected Region is confirmed as `us-east-2`; check the project's plan and spend status in **AWS Settings → Billing**.
 - Terraform 1.14 or later within major version 1, AWS CLI with an authenticated local session, and permissions to manage the bootstrap S3 bucket and programmatic IAM users/policies. IAM access keys must be created manually after bootstrap.
-- GitHub repository administration to add Actions secrets, configure the `terraform-apply` environment to allow deployments **only from `main`**, and protect `main` with required PR review and a passing Terraform plan check. A push to `main` triggers apply, so branch protection is necessary if apply should occur only after merge.
+- GitHub repository administration to add Actions secrets, configure the `terraform-apply` environment to allow deployments **only from `main`**, and protect `main` with a ruleset requiring a pull request and the `plan` check. Require the branch to be up to date before merge and avoid routine bypasses. The workflow cannot block a direct Git push by itself.
 - A globally unique state bucket name, supplied only as a local Terraform input.
 
 ## Bootstrap and GitHub Secrets
@@ -95,6 +96,7 @@ After authenticating locally and setting those inputs, select the authenticated 
 
 ```sh
 export AWS_PROFILE=aws-eks-platform-lab
+export AWS_REGION=us-east-2
 cd terraform/bootstrap
 terraform init
 terraform fmt -check
@@ -125,9 +127,11 @@ Create a [GitHub environment](https://docs.github.com/en/actions/how-tos/deploy/
 
 ## Deployment
 
-The workflow runs `terraform fmt`, `terraform init`, and `terraform validate` before loading AWS credentials. On a same-repository PR, it initializes the S3 backend and runs a read-oriented `terraform plan`. Fork PRs are skipped because repository secrets are unavailable. On a push to `main`, the environment-restricted job creates a fresh plan and applies that exact plan file. The PR plan is reviewed evidence; it is not reused after merge because state may have changed.
+The workflow runs `terraform fmt`, `terraform init`, and `terraform validate` before loading AWS credentials. On a same-repository PR, it creates a saved plan, prints the reviewable plan in the job log, and uploads only a fingerprint of its full JSON representation and the source tree. Fork PRs fail before loading AWS credentials. When that PR is merged into `main`, the environment-restricted job checks out the merge commit, finds the successful PR plan artifact for the exact source tree, creates a fresh plan, and applies it only if its fingerprint matches. A changed configuration, refreshed state, or changed plan blocks apply and requires another PR plan. Direct pushes do not trigger apply.
 
-For local platform inspection after bootstrap, set `TF_VAR_aws_region` and `TF_STATE_BUCKET` in your shell, then:
+The binary plan is never uploaded to this public repository: [Terraform warns](https://developer.hashicorp.com/terraform/cli/commands/plan) that saved plans may contain unredacted sensitive values. A GitHub ruleset targeting `main` must enforce **Require a pull request before merging** and **Require status checks to pass** with the `plan` job selected. Configure this in **Settings → Rules → Rulesets**, and verify the rule is active before relying on it.
+
+For local platform inspection after bootstrap, set `AWS_PROFILE`, `AWS_REGION`, `TF_VAR_aws_region`, and `TF_STATE_BUCKET` in your shell, then:
 
 ```sh
 cd terraform/platform
@@ -137,7 +141,7 @@ terraform validate
 terraform plan
 ```
 
-Review the plan before merging. The initial `main` apply succeeded, and the expected VPC resources were verified in the selected Region. A PR plan run has not yet been tested.
+Review the plan before merging. The initial direct `main` apply succeeded before this workflow change, and the expected VPC resources were verified in the selected Region. The new PR-to-merge flow has not yet been verified.
 
 ## Observability & Reliability
 
