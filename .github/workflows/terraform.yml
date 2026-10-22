@@ -2,7 +2,9 @@ name: Terraform platform
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, closed]
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [main]
 
 permissions:
   contents: read
@@ -18,7 +20,7 @@ env:
 
 jobs:
   plan:
-    if: github.event.action != 'closed'
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -60,7 +62,7 @@ jobs:
           retention-days: 7
 
   apply:
-    if: github.event.action == 'closed' && github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     environment: terraform-apply
     permissions:
@@ -72,12 +74,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          ref: ${{ github.sha }}
       - name: Find reviewed PR plan
         env:
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: python3 ../../.github/scripts/terraform_plan_review.py fetch
       - uses: hashicorp/setup-terraform@v4
         with:

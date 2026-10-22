@@ -68,11 +68,24 @@ def github_get(path, *, binary=False):
 
 def find_review():
     repository = os.environ["GITHUB_REPOSITORY"]
-    pr = int(os.environ["PR_NUMBER"])
-    head_sha = os.environ["PR_HEAD_SHA"]
+    merge_sha = os.environ["GITHUB_SHA"]
+    base = f"/repos/{repository}"
+    associated_prs = github_get(f"{base}/commits/{merge_sha}/pulls")
+    merged_prs = [
+        item
+        for item in associated_prs
+        if item.get("merged_at")
+        and item.get("merge_commit_sha") == merge_sha
+        and item["base"]["ref"] == "main"
+        and item["base"]["repo"]["full_name"] == repository
+        and item["head"]["repo"]["full_name"] == repository
+    ]
+    if len(merged_prs) != 1:
+        raise ValueError("Main commit is not the merge of one same-repository PR")
+    pr = merged_prs[0]["number"]
+    head_sha = merged_prs[0]["head"]["sha"]
     expected_tree = tree_sha()
     name = f"terraform-plan-pr-{pr}-{head_sha}"
-    base = f"/repos/{repository}"
     artifacts = []
     page = 1
     while True:
