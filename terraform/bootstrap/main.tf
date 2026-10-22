@@ -135,6 +135,9 @@ data "aws_iam_policy_document" "apply" {
     }
   }
 
+}
+
+data "aws_iam_policy_document" "apply_eks" {
   statement {
     sid       = "CreateLabEksCluster"
     actions   = ["eks:CreateCluster"]
@@ -175,6 +178,12 @@ data "aws_iam_policy_document" "apply" {
       variable = "aws:ResourceTag/Project"
       values   = ["aws-eks-platform-lab"]
     }
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestedRegion"
+      values   = [var.aws_region]
+    }
   }
 
   statement {
@@ -209,4 +218,15 @@ resource "aws_iam_user_policy" "apply" {
   name   = "terraform-apply-network"
   user   = aws_iam_user.apply.name
   policy = data.aws_iam_policy_document.apply.json
+}
+
+resource "aws_iam_policy" "apply_eks" {
+  name        = "aws-eks-platform-lab-terraform-apply-eks"
+  description = "EKS and service role permissions for the platform Terraform apply identity."
+  policy      = data.aws_iam_policy_document.apply_eks.json
+}
+
+resource "aws_iam_user_policy_attachment" "apply_eks" {
+  user       = aws_iam_user.apply.name
+  policy_arn = aws_iam_policy.apply_eks.arn
 }
