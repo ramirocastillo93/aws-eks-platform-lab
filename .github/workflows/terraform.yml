@@ -2,14 +2,7 @@ name: Terraform platform
 
 on:
   pull_request:
-    paths:
-      - "terraform/platform/**"
-      - ".github/workflows/terraform.yml"
-  push:
-    branches: [main]
-    paths:
-      - "terraform/platform/**"
-      - ".github/workflows/terraform.yml"
+    types: [opened, synchronize, reopened, closed]
 
 permissions:
   contents: read
@@ -25,8 +18,7 @@ env:
 
 jobs:
   plan:
-    # Fork PRs have no repository secrets; never run untrusted Terraform with AWS access.
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event.action != 'closed'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -34,10 +26,17 @@ jobs:
       run:
         working-directory: terraform/platform
     steps:
+      - name: Reject fork PRs before loading credentials
+        working-directory: ${{ github.workspace }}
+        env:
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE_REPOSITORY: ${{ github.repository }}
+        run: test "$HEAD_REPOSITORY" = "$BASE_REPOSITORY"
       - uses: actions/checkout@v4
       - uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: "1.14.7"
+          terraform_wrapper: false
       - run: terraform fmt -check -recursive
       - run: terraform init -backend=false -input=false
       - run: terraform validate -no-color
@@ -47,22 +46,43 @@ jobs:
           aws-access-key-id: ${{ secrets.AWS_TF_PLAN_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_TF_PLAN_SECRET_ACCESS_KEY }}
       - run: terraform init -reconfigure -input=false -backend-config="bucket=$TF_STATE_BUCKET"
-      - run: terraform plan -input=false -no-color -lock-timeout=5m
+      - run: terraform plan -input=false -no-color -lock-timeout=5m -out=plan.tfplan
+      - name: Record reviewed plan fingerprint
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: python3 ../../.github/scripts/terraform_plan_review.py record plan.tfplan
+      - uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan-pr-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+          path: terraform/platform/plan-review.json
+          if-no-files-found: error
+          retention-days: 7
 
   apply:
-    if: github.event_name == 'push'
+    if: github.event.action == 'closed' && github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     environment: terraform-apply
     permissions:
       contents: read
+      actions: read
     defaults:
       run:
         working-directory: terraform/platform
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+      - name: Find reviewed PR plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: python3 ../../.github/scripts/terraform_plan_review.py fetch
       - uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: "1.14.7"
+          terraform_wrapper: false
       - run: terraform fmt -check -recursive
       - run: terraform init -backend=false -input=false
       - run: terraform validate -no-color
@@ -73,4 +93,6 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_TF_APPLY_SECRET_ACCESS_KEY }}
       - run: terraform init -reconfigure -input=false -backend-config="bucket=$TF_STATE_BUCKET"
       - run: terraform plan -input=false -no-color -lock-timeout=5m -out=plan.tfplan
+      - name: Compare with reviewed PR plan
+        run: python3 ../../.github/scripts/terraform_plan_review.py verify plan.tfplan
       - run: terraform apply -input=false -no-color plan.tfplan

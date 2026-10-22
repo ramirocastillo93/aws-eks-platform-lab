@@ -8,6 +8,8 @@ GEMINI.md
 *.tfstate
 *.tfstate.*
 *.tfplan
+plan-review.json
+reviewed-plan.json
 *.tfvars
 *.tfvars.json
 crash.log
@@ -16,3 +18,5 @@ override.tf
 override.tf.json
 *_override.tf
 *_override.tf.json
+__pycache__/
+*.pyc
