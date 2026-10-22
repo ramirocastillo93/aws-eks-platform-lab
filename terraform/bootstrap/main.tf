@@ -174,6 +174,7 @@ data "aws_iam_policy_document" "apply_eks" {
       "eks:DeleteCluster", "eks:UpdateClusterConfig", "eks:UpdateClusterVersion",
       "eks:CreateNodegroup", "eks:DeleteNodegroup", "eks:UpdateNodegroupConfig",
       "eks:CreateAddon", "eks:DeleteAddon", "eks:UpdateAddon",
+      "eks:CreatePodIdentityAssociation", "eks:DeletePodIdentityAssociation",
       "eks:CreateAccessEntry", "eks:DeleteAccessEntry", "eks:UpdateAccessEntry",
       "eks:AssociateAccessPolicy", "eks:DisassociateAccessPolicy",
       "eks:TagResource", "eks:UntagResource"
@@ -182,7 +183,8 @@ data "aws_iam_policy_document" "apply_eks" {
       "arn:${data.aws_partition.current.partition}:eks:${var.aws_region}:${data.aws_caller_identity.current.account_id}:cluster/aws-eks-platform-lab-eks",
       "arn:${data.aws_partition.current.partition}:eks:${var.aws_region}:${data.aws_caller_identity.current.account_id}:nodegroup/aws-eks-platform-lab-eks/*/*",
       "arn:${data.aws_partition.current.partition}:eks:${var.aws_region}:${data.aws_caller_identity.current.account_id}:addon/aws-eks-platform-lab-eks/*/*",
-      "arn:${data.aws_partition.current.partition}:eks:${var.aws_region}:${data.aws_caller_identity.current.account_id}:access-entry/aws-eks-platform-lab-eks/*"
+      "arn:${data.aws_partition.current.partition}:eks:${var.aws_region}:${data.aws_caller_identity.current.account_id}:access-entry/aws-eks-platform-lab-eks/*",
+      "arn:${data.aws_partition.current.partition}:eks:${var.aws_region}:${data.aws_caller_identity.current.account_id}:podidentityassociation/aws-eks-platform-lab-eks/*"
     ]
 
     condition {

@@ -1,9 +1,13 @@
 data "aws_caller_identity" "current" {}
 data "aws_partition" "current" {}
 
+data "aws_iam_role" "eks_admin" {
+  name = var.eks_admin_role_name
+}
+
 locals {
   eks_name      = "${local.name}-eks"
-  eks_admin_arn = "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:role/${var.eks_admin_role_name}"
+  eks_admin_arn = data.aws_iam_role.eks_admin.arn
   eks_node_groups = {
     az_a = aws_subnet.private["az_a"].id
     az_b = aws_subnet.private["az_b"].id
@@ -125,6 +129,8 @@ resource "aws_eks_addon" "pod_identity_agent" {
   addon_name   = "eks-pod-identity-agent"
 
   tags = { Project = local.name }
+
+  depends_on = [aws_eks_node_group.lab]
 }
 
 resource "aws_eks_addon" "vpc_cni" {
@@ -139,6 +145,7 @@ resource "aws_eks_addon" "vpc_cni" {
   tags = { Project = local.name }
 
   depends_on = [
+    aws_eks_node_group.lab,
     aws_eks_addon.pod_identity_agent,
     aws_iam_role_policy_attachment.vpc_cni,
   ]
@@ -149,6 +156,8 @@ resource "aws_eks_addon" "kube_proxy" {
   addon_name   = "kube-proxy"
 
   tags = { Project = local.name }
+
+  depends_on = [aws_eks_node_group.lab]
 }
 
 resource "aws_eks_addon" "coredns" {
@@ -156,6 +165,9 @@ resource "aws_eks_addon" "coredns" {
   addon_name   = "coredns"
 
   tags = { Project = local.name }
+
+  # CoreDNS needs nodes to become healthy; nodes must not wait for CoreDNS.
+  depends_on = [aws_eks_node_group.lab]
 }
 
 resource "aws_eks_node_group" "lab" {
@@ -180,9 +192,6 @@ resource "aws_eks_node_group" "lab" {
   depends_on = [
     aws_iam_role_policy_attachment.eks_nodes_worker,
     aws_iam_role_policy_attachment.eks_nodes_ecr,
-    aws_eks_addon.vpc_cni,
-    aws_eks_addon.kube_proxy,
-    aws_eks_addon.coredns,
   ]
 
   tags = { Project = local.name }
