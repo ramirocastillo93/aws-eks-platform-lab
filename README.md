@@ -141,7 +141,7 @@ terraform validate
 terraform plan
 ```
 
-Review the plan before merging. The initial direct `main` apply succeeded before this workflow change, and the expected VPC resources were verified in the selected Region. The PR plan passed; the revised merge apply and fingerprint comparison remain unverified until this workflow is merged.
+Review the plan before merging. The initial direct `main` apply succeeded before this workflow change, and the expected VPC resources were verified in the selected Region. PR #3's plan passed; after merge, the workflow retrieved its reviewed-plan artifact, matched the post-merge plan fingerprint, and applied successfully.
 
 ## Observability & Reliability
 
