@@ -51,6 +51,19 @@ def write_metadata(path):
     print("Saved the plan fingerprint and source tree for merge verification.")
 
 
+class GitHubRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, request, fp, code, msg, headers, newurl):
+        redirected = super().redirect_request(request, fp, code, msg, headers, newurl)
+        source = urllib.parse.urlparse(request.full_url)
+        destination = urllib.parse.urlparse(newurl)
+        if redirected and (destination.scheme, destination.netloc) != (
+            source.scheme,
+            source.netloc,
+        ):
+            redirected.remove_header("Authorization")
+        return redirected
+
+
 def github_get(path, *, binary=False):
     token = os.environ["GH_TOKEN"]
     request = urllib.request.Request(
@@ -61,7 +74,8 @@ def github_get(path, *, binary=False):
             "X-GitHub-Api-Version": "2022-11-28",
         },
     )
-    with urllib.request.urlopen(request, timeout=30) as response:
+    opener = urllib.request.build_opener(GitHubRedirectHandler())
+    with opener.open(request, timeout=30) as response:
         body = response.read()
     return body if binary else json.loads(body)
 
