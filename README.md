@@ -4,11 +4,11 @@
 
 This is a hands-on AWS platform engineering lab built on existing GCP, GKE, Terraform, Kubernetes, and SRE experience. The long-term goal is a production-inspired EKS platform, developed in small, observable increments. The current increment defines the network foundation and the Terraform delivery path. It does **not** define or deploy EKS, EC2 nodes, a NAT Gateway, RDS, ElastiCache, or an application.
 
-**Status:** Bootstrap has been applied: the S3 state bucket has versioning, default encryption, and public-access blocking, and separate plan/apply IAM users with policies exist. Access keys were created outside Terraform and configured as GitHub secrets by the repository owner; their placement and operation have not been verified here. The VPC has not been deployed, and no GitHub workflow run has been verified. The initial bootstrap attempt failed because the project's AWS service control policy denied GitHub OIDC provider creation; the IAM user design was then applied successfully. The user-reported selected Region is `us-east-2` (Ohio); confirm it in **AWS Settings → View all projects → Overview → Additional Info → Region** before deploying the platform. Both Terraform roots reject another Region.
+**Status:** Bootstrap has been applied: the S3 state bucket has versioning, default encryption, and public-access blocking, and separate plan/apply IAM users with policies exist. Access keys were created outside Terraform and configured as GitHub secrets by the repository owner. The first `main` workflow apply succeeded, and the VPC, four subnets across two Availability Zones, route tables, and Internet Gateway were verified in AWS. The PR plan path and GitHub environment branch restriction have not been verified. The initial bootstrap attempt failed because the project's AWS service control policy denied GitHub OIDC provider creation; the IAM user design was then applied successfully. The selected Region is `us-east-2` (Ohio). Both Terraform roots reject another Region.
 
 ## Architecture
 
-The diagram shows the **current Terraform scope**. The state bucket and IAM users are deployed; the VPC resources are defined but not deployed. It will grow only when a new component is implemented.
+The diagram shows **deployed and verified resources**. It will grow only when a new component is implemented.
 
 ```mermaid
 flowchart LR
@@ -19,7 +19,7 @@ flowchart LR
         state[S3 Terraform state bucket<br/>versioning and encryption deployed<br/>lockfile configured for platform]
 
         subgraph region[Selected Region: us-east-2]
-            subgraph vpc[VPC 10.0.0.0/16: defined, not deployed]
+            subgraph vpc[VPC 10.0.0.0/16: deployed]
                 igw[Internet Gateway]
                 prt[Public route table<br/>default route to IGW]
                 subgraph az1[Availability Zone 1]
@@ -137,7 +137,7 @@ terraform validate
 terraform plan
 ```
 
-Review the plan before merging. The platform apply is only verified when the GitHub Actions run succeeds and the expected VPC resources are visible in the selected Region. The platform has not been applied yet.
+Review the plan before merging. The initial `main` apply succeeded, and the expected VPC resources were verified in the selected Region. A PR plan run has not yet been tested.
 
 ## Observability & Reliability
 
