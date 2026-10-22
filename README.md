@@ -2,170 +2,176 @@
 
 ## Overview
 
-This repository is a hands-on AWS platform engineering lab. It applies experience with GCP, GKE, Terraform, Kubernetes, GitOps, and observability to an AWS-native design: a private EKS data plane, managed PostgreSQL and Valkey, scoped workload identities, and measurable operational behavior. The aim is to understand the AWS networking, security, service, and cost decisions behind the platform, not merely to create a cluster.
+This is a hands-on AWS platform engineering lab built on existing GCP, GKE, Terraform, Kubernetes, and SRE experience. The long-term goal is a production-inspired EKS platform, developed in small, observable increments. The current increment defines the network foundation and the Terraform delivery path. It does **not** define or deploy EKS, EC2 nodes, a NAT Gateway, RDS, ElastiCache, or an application.
 
-**Status:** design only. The repository does not yet contain Terraform, application code, Kubernetes manifests, or a deployed environment. The architecture and workflows below are intended targets, not verified implementation. This is a learning environment, not a production system.
-
-The intended Region is `us-east-1`, subject to the project's assigned Region. Before implementation, confirm it in **AWS Settings → View all projects → Overview → Additional Info → Region**; all Regional resources must use that selected Region. The planned VPC CIDR is `10.0.0.0/16`.
+**Status:** Bootstrap has been applied: the S3 state bucket has versioning, default encryption, and public-access blocking, and separate plan/apply IAM users with policies exist. Access keys were created outside Terraform and configured as GitHub secrets by the repository owner; their placement and operation have not been verified here. The VPC has not been deployed, and no GitHub workflow run has been verified. The initial bootstrap attempt failed because the project's AWS service control policy denied GitHub OIDC provider creation; the IAM user design was then applied successfully. The user-reported selected Region is `us-east-2` (Ohio); confirm it in **AWS Settings → View all projects → Overview → Additional Info → Region** before deploying the platform. Both Terraform roots reject another Region.
 
 ## Architecture
 
+The diagram shows the **current Terraform scope**. The state bucket and IAM users are deployed; the VPC resources are defined but not deployed. It will grow only when a new component is implemented.
+
 ```mermaid
-flowchart TB
-    users[Internet clients] --> alb
+flowchart LR
+    gh[GitHub Actions<br/>PR plan / main apply]
 
-    subgraph aws[AWS project / selected Region]
-        iam[IAM roles and EKS Pod Identity associations]
-        eks[EKS managed control plane<br/>AWS-operated, outside the VPC]
-        secrets[Secrets Manager]
-        cw[CloudWatch logs, metrics, alarms, dashboard]
-        state[S3 Terraform state<br/>native lockfile]
+    subgraph aws[AWS project]
+        iam[Separate IAM users and policies<br/>for plan and apply: deployed]
+        state[S3 Terraform state bucket<br/>versioning and encryption deployed<br/>lockfile configured for platform]
 
-        subgraph vpc[VPC 10.0.0.0/16]
-            igw[Internet Gateway]
-            subgraph az1[Availability Zone A]
-                subgraph pub1[Public subnet]
-                    alb[Public ALB, optional]
-                    nat[NAT Gateway]
+        subgraph region[Selected Region: us-east-2]
+            subgraph vpc[VPC 10.0.0.0/16: defined, not deployed]
+                igw[Internet Gateway]
+                prt[Public route table<br/>default route to IGW]
+                subgraph az1[Availability Zone 1]
+                    pub1[Public subnet<br/>10.0.0.0/24]
+                    priv1[Private subnet<br/>10.0.10.0/24]
                 end
-                subgraph priv1[Private subnet]
-                    node1[EKS managed EC2 nodes<br/>FastAPI pods]
+                subgraph az2[Availability Zone 2]
+                    pub2[Public subnet<br/>10.0.1.0/24]
+                    priv2[Private subnet<br/>10.0.11.0/24]
                 end
+                r1[Private route table 1<br/>local route only]
+                r2[Private route table 2<br/>local route only]
             end
-            subgraph az2[Availability Zone B]
-                subgraph pub2[Public subnet]
-                    alb2[ALB attachment, optional]
-                end
-                subgraph priv2[Private subnet]
-                    node2[EKS managed EC2 nodes<br/>FastAPI pods]
-                end
-            end
-            rds[(RDS PostgreSQL<br/>private endpoint)]
-            cache[(ElastiCache Valkey<br/>private endpoint)]
         end
     end
 
-    igw --> pub1 & pub2
-    pub1 --> nat
-    priv1 & priv2 -. outbound route .-> nat
-    alb --- alb2
-    alb --> node1 & node2
-    eks --> node1 & node2
-    node1 & node2 --> rds & cache
-    iam -. scoped AWS API access .-> node1 & node2
-    node1 & node2 -. read database secret .-> secrets
-    node1 & node2 -. telemetry .-> cw
-    eks -. control plane logs, if enabled .-> cw
+    gh -. access keys in GitHub secrets .-> iam
+    iam --> state
+    iam --> vpc
+    igw --> prt
+    prt --> pub1 & pub2
+    r1 --> priv1
+    r2 --> priv2
 ```
 
-The ALB and its controller are optional. If implemented, the ALB spans public subnets in both Availability Zones; the controller runs in EKS, while the ALB is an AWS-managed resource attached to the VPC. The EKS control plane is AWS-operated outside the VPC and communicates with nodes through network interfaces in the VPC; managed node group EC2 instances and application pods run in private subnets. RDS and ElastiCache are AWS-managed services with private network endpoints in the VPC, not pods on the nodes. The single NAT Gateway shown is a **lab cost choice** and an egress dependency on one Availability Zone.
+The public subnets have an Internet Gateway route but do not automatically assign public IPv4 addresses. The private subnets have no internet egress yet. Nothing is scheduled into these subnets. IAM users are global AWS resources; the state bucket and VPC are Regional resources outside and inside the VPC respectively.
 
 ## Technology Stack
 
-| Technology | Planned responsibility |
+| Component | Current responsibility |
 | --- | --- |
-| VPC, subnets, routes, security groups, Internet Gateway, NAT Gateway | Network segmentation and outbound access |
-| Amazon EKS and EC2 managed node groups | Managed Kubernetes control plane and private worker nodes |
-| IAM and EKS Pod Identity | Scoped AWS API permissions for controllers and workloads |
-| Amazon RDS for PostgreSQL | Managed relational database |
-| Amazon ElastiCache for Valkey | Managed cache |
-| AWS Secrets Manager | Database credential storage and retrieval |
-| Amazon CloudWatch and Container Insights | Logs, infrastructure and container telemetry, alarms, dashboard |
-| Amazon S3 and Terraform | Remote state and declarative infrastructure provisioning |
-| Python, FastAPI, Docker, Kubernetes | Sample API, container image, workload deployment |
-| AWS Load Balancer Controller and ALB | Optional public HTTP ingress |
+| Terraform and AWS provider | Define bootstrap resources and the platform network |
+| Amazon S3 | Versioned, encrypted Terraform state with native S3 lockfiles |
+| IAM and GitHub Actions secrets | Separate programmatic plan and apply identities |
+| VPC, subnets, routes, Internet Gateway | Two-zone network foundation |
+| GitHub Actions | Validate and plan same-repository PRs; plan and apply on `main` pushes |
 
 ## Design Decisions
 
-- **Private workloads:** Nodes, RDS, and ElastiCache have no public endpoint. Public subnets are reserved for internet-facing components and NAT. Private nodes need an egress path for image pulls and AWS APIs, through NAT or suitable VPC endpoints.
-- **Two Availability Zones:** Node placement spans both zones to exercise scheduling and node failure behavior. A subnet group spanning zones does not make a single RDS instance or cache node highly available; Multi-AZ database deployment and cache replication/failover are separate decisions.
-- **Explicit network access:** Separate security groups restrict database and cache ports to approved workload network paths. A shared node security group alone may permit every pod on that node to connect; stronger per-workload isolation requires an appropriate pod networking and policy design.
-- **Managed services:** EKS, RDS, and ElastiCache reduce undifferentiated control-plane, database, and cache operations while leaving patching choices, configuration, backups, failover design, and cost management to the operator.
-- **Workload identity:** [EKS Pod Identity](https://docs.aws.amazon.com/eks/latest/userguide/pod-identities.html) associates an IAM role with a Kubernetes service account for AWS API access. Database authentication remains a separate credential concern. The Pod Identity Agent is required on nodes.
-- **Repeatable changes:** Terraform will own AWS infrastructure; Kubernetes deployment will be a separate stage. S3 state will use [native lockfiles](https://developer.hashicorp.com/terraform/language/backend/s3), versioning, encryption, and restricted access. The state bucket must exist before backend initialization.
-- **Operational visibility:** CloudWatch telemetry should answer whether infrastructure is healthy, whether requests succeed, and where failures begin. Observability resources and retention must be sized for a short-lived lab.
+- **Small first increment:** VPC, subnets, routes, and an Internet Gateway are enough to establish the network layout. NAT and the managed compute/data services are omitted until their costs and operational behavior can be reviewed separately.
+- **Private subnet isolation:** Each private subnet has its own route table with only the VPC's local route. Future private nodes will need an explicit NAT or VPC endpoint design before they can pull images or call AWS services.
+- **Two Availability Zones:** Terraform selects two available zones in the selected Region. This provides subnet placement options; it does not yet provide workload availability.
+- **Separated privileges:** A PR plan user can read network resources and state, while the `main` apply user can modify the current network and state. The apply credential is kept in a GitHub environment restricted to `main`; the PR workflow cannot access that environment. The EC2 write policy is limited by action and Region, but uses `Resource: *` where resource IDs are unknown before creation; tightening it as resources become known is future work.
+- **Credential trade-off:** The project's [managed AWS policy](https://docs.aws.amazon.com/accounts/latest/reference/scps-and-rcps-for-projects.html) denies creation of IAM identity providers, preventing GitHub OIDC. Dedicated IAM users with access keys are a Free Plan compatible fallback. Long-lived keys require rotation and careful protection. Terraform manages only the users and policies; key material never enters Terraform state.
+- **State bootstrap:** The bucket and GitHub IAM users are created by a separate Terraform root using local state. The platform root uses S3 state and [native lockfiles](https://developer.hashicorp.com/terraform/language/backend/s3). Local bootstrap state must be retained securely and never committed.
 
-These choices follow the security, reliability, operational excellence, and cost optimization concerns of the [AWS Well-Architected Framework](https://docs.aws.amazon.com/wellarchitected/latest/framework/welcome.html). Two-zone node placement, a single NAT Gateway, and potentially single-instance data services should not be mistaken for end-to-end production availability.
+The design is informed by the security, operational excellence, reliability, and cost optimization pillars of the [AWS Well-Architected Framework](https://docs.aws.amazon.com/wellarchitected/latest/framework/welcome.html). It is a lab, not a production availability claim.
 
 ## Repository Structure
 
-Current project content is documentation and repository guidance only; there are no Terraform or workload files. A possible structure as implementation proceeds is:
-
 ```text
-README.md                 # current: project design and operating guide
-.gitignore                # current: local ignore rules
-terraform/                # planned: root configuration and backend
-  modules/                # planned: reusable modules where useful
-app/                      # planned: FastAPI source and Dockerfile
-kubernetes/               # planned: workload and service manifests
-.github/workflows/         # optional: CI/CD after the local path works
+.github/workflows/terraform.yml     PR plan and main-branch apply
+terraform/bootstrap/                Local bootstrap: S3 state and IAM users
+terraform/platform/                 S3-backed VPC foundation
+README.md                           Current design and runbook
+.gitignore                          Excludes local state, plans, variables, and tools
 ```
 
-The final layout and commands will be updated alongside actual files.
+Provider dependency locks are tracked in each Terraform root. `.terraform/`, state files, plan files, and `*.tfvars` are ignored.
 
 ## Prerequisites
 
-- An AWS project with the selected Region confirmed in AWS Settings. Check whether the project is on a free or paid plan and review spend status under **AWS Settings → Billing** before provisioning.
-- AWS CLI with an authenticated project session; Terraform, `kubectl`, and Docker installed locally.
-- Permissions to manage the planned VPC, EC2, EKS, IAM service roles and Pod Identity, RDS, ElastiCache, Secrets Manager, CloudWatch, and S3 resources, including state bucket access. Scope permissions to the resources and actions needed as the Terraform design becomes concrete.
-- An explicit cost budget and a teardown window. This architecture should be assumed billable even if the project has Free Tier benefits or credits.
+- An AWS project whose selected Region is confirmed as `us-east-2`; check the project's plan and spend status in **AWS Settings → Billing**.
+- Terraform 1.14 or later within major version 1, AWS CLI with an authenticated local session, and permissions to manage the bootstrap S3 bucket and programmatic IAM users/policies. IAM access keys must be created manually after bootstrap.
+- GitHub repository administration to add Actions secrets, configure the `terraform-apply` environment to allow deployments **only from `main`**, and protect `main` with required PR review and a passing Terraform plan check. A push to `main` triggers apply, so branch protection is necessary if apply should occur only after merge.
+- A globally unique state bucket name, supplied only as a local Terraform input.
+
+## Bootstrap and GitHub Secrets
+
+`terraform/bootstrap` uses local state to create the S3 bucket and two IAM users with separate policies. Supply its required variables through `TF_VAR_aws_region` and `TF_VAR_state_bucket_name` in your local shell or an ignored `*.tfvars` file. No local input file belongs in Git. **Preserve the existing local bootstrap state:** it tracks the bucket and IAM resources already created. Review every future bootstrap plan before applying it.
+
+After authenticating locally and setting those inputs, select the authenticated AWS CLI profile in the same shell. For this checkout, `aws login --profile aws-eks-platform-lab --region us-east-2` created a working profile while the existing default access keys remained invalid:
+
+```sh
+export AWS_PROFILE=aws-eks-platform-lab
+cd terraform/bootstrap
+terraform init
+terraform fmt -check
+terraform validate
+terraform plan
+terraform apply
+```
+
+Retain `terraform/bootstrap/terraform.tfstate` locally, keep it out of Git, and back it up securely; it is required to manage or remove bootstrap resources. After bootstrap, create one access key for each output user (`terraform output -raw plan_user_name` and `terraform output -raw apply_user_name`) through IAM in the AWS Management Console. Do not create keys with Terraform: its state would then contain the secret access keys.
+
+Set these **GitHub Actions repository secrets**:
+
+| Secret name | Value to supply |
+| --- | --- |
+| `AWS_REGION` | The selected Region: `us-east-2` |
+| `TF_STATE_BUCKET` | `terraform output -raw state_bucket_name` |
+| `AWS_TF_PLAN_ACCESS_KEY_ID` | Access key ID for the plan IAM user |
+| `AWS_TF_PLAN_SECRET_ACCESS_KEY` | Secret access key for the plan IAM user |
+
+Create a [GitHub environment](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments) named `terraform-apply`, restrict its deployment branches to **`main` only**, and add these **environment secrets**:
+
+| Secret name | Value to supply |
+| --- | --- |
+| `AWS_TF_APPLY_ACCESS_KEY_ID` | Access key ID for the apply IAM user |
+| `AWS_TF_APPLY_SECRET_ACCESS_KEY` | Secret access key for the apply IAM user |
+
+**Do not commit access key IDs, secret access keys, session tokens, Terraform state, or plan artifacts.** Store both keys only in the specified GitHub secrets and rotate them periodically. The plan user's access to state means future state values must be treated as sensitive. Delete old IAM access keys after rotation; deactivate keys immediately if exposed. GitHub environment branch restrictions are essential because a public repository's same-repository PRs can run arbitrary Terraform code with the plan credential.
 
 ## Deployment
 
-**Not runnable yet:** there is no Terraform root module, backend configuration, cluster name, container image, or Kubernetes manifest in this repository. The expected sequence, once those files exist, is:
+The workflow runs `terraform fmt`, `terraform init`, and `terraform validate` before loading AWS credentials. On a same-repository PR, it initializes the S3 backend and runs a read-oriented `terraform plan`. Fork PRs are skipped because repository secrets are unavailable. On a push to `main`, the environment-restricted job creates a fresh plan and applies that exact plan file. The PR plan is reviewed evidence; it is not reused after merge because state may have changed.
 
-1. Confirm the selected Region and project plan; establish a cost budget. Create the S3 state bucket and its access controls before initializing the Terraform backend.
-2. From the future Terraform root, run `terraform init`, inspect `terraform plan`, then run `terraform apply` after reviewing the proposed resources and cost exposure. Record the exact configuration, module versions, and required inputs in this section when implemented.
-3. Configure `kubectl` using `aws eks update-kubeconfig` with the actual cluster name and selected Region from the deployed infrastructure. Confirm node readiness before deploying workloads.
-4. Build and publish the FastAPI image to an approved registry, then apply the actual manifests or deployment workflow that will be added under `kubernetes/`. Verify rollout, readiness, database/cache connectivity, and, if enabled, ALB routing.
+For local platform inspection after bootstrap, set `TF_VAR_aws_region` and `TF_STATE_BUCKET` in your shell, then:
 
-Infrastructure provisioning and Kubernetes workload deployment are distinct steps. A successful `terraform apply` alone will not demonstrate a working application.
+```sh
+cd terraform/platform
+terraform init -backend-config="bucket=$TF_STATE_BUCKET"
+terraform fmt -check
+terraform validate
+terraform plan
+```
+
+Review the plan before merging. The platform apply is only verified when the GitHub Actions run succeeds and the expected VPC resources are visible in the selected Region. The platform has not been applied yet.
 
 ## Observability & Reliability
 
-The planned baseline includes EKS/node health, pod restarts and readiness, CPU and memory, RDS connections and storage, ElastiCache health, and request rate, latency, and error rate for the API. Container Insights and centralized application logs should feed a small CloudWatch dashboard and alarms for actionable conditions such as unavailable workloads, sustained API errors, database pressure, and failing cache nodes. Enable EKS control plane logs selectively and set log retention deliberately.
-
-The application should expose health and readiness endpoints. Liveness should indicate whether the process can recover; readiness should reflect whether it can serve the intended request path. Exact thresholds, dashboards, and alarm behavior will be documented after they exist and are exercised.
+There are no workloads or telemetry components yet. The immediate checks are Terraform plan/apply status, state locking, and inspection of the VPC, subnet, route table, and Internet Gateway configuration. Future EKS and application increments will add CloudWatch metrics and logs, Container Insights, health/readiness probes, actionable alarms, and a dashboard; each will appear in the architecture diagram only when implemented.
 
 ## Failure Scenarios
 
-| Experiment | What it should demonstrate |
+| Future experiment | Intended observation |
 | --- | --- |
-| Block or misconfigure RDS connectivity | Readiness and request errors, bounded connection timeouts, and useful database alarms/logs |
-| Make Valkey unavailable | Cache error handling and whether the API can degrade safely or must fail requests |
-| Terminate a pod | Deployment replacement, probe behavior, and continuity during a rollout or restart |
-| Drain or disrupt a node | Rescheduling across zones, capacity limits, and the effect of disruption on requests |
+| Block RDS connectivity | Application timeout behavior and database connection alarms |
+| Make Valkey unavailable | Cache dependency handling and safe degradation |
+| Terminate a pod | Readiness, replacement, and request continuity |
+| Disrupt a node | Rescheduling across zones and available capacity |
 
-These are proposed experiments. Results, recovery times, and availability claims will be recorded only after testing.
+No experiments or recovery results are claimed yet.
 
 ## Security Considerations
 
-- Use least-privilege IAM for Terraform, EKS components, and each service account; prefer short-lived identity over static AWS access keys. GitHub Actions, if added, should use OIDC with a restricted trust policy.
-- Keep RDS and ElastiCache private and allow only required ports from approved sources. Add Kubernetes network policy or pod-level isolation where a shared node security group is too broad.
-- Store database credentials in Secrets Manager and avoid committing them, putting them in Terraform variables or outputs, or embedding them in images. If Terraform ever creates a secret value, treat the state as sensitive because it may contain that value. Pod Identity grants AWS API access; it does not itself inject a database password.
-- Encrypt state, database, cache, logs, and traffic where supported; restrict state bucket access and retain recoverable state versions. Define who can reach the EKS API endpoint before deployment.
-- Review image provenance, pinned versions, and container permissions as the application is added.
+The state bucket blocks public access, enables versioning and default SSE-S3 encryption, and uses a native lockfile. The plan user can read state and acquire/release its lock but cannot write the state object or mutate the VPC; the apply user can do both. The apply credential must remain in the `terraform-apply` GitHub environment with a `main`-only deployment rule. Same-repository PR code still runs with read access to state, so review Terraform and provider changes carefully before opening or updating a PR. The IAM users have no console passwords.
+
+Later services will require separate workload IAM roles, security groups, private database/cache endpoints, secret management, encryption choices, and an EKS API access policy. No database credentials or AWS tokens should be passed through Terraform variables or committed files. Terraform state may contain sensitive values even when CLI output is redacted.
 
 ## Cost Considerations
 
-This target architecture **cannot be assumed to stay within the Free Tier**. [EKS cluster time and worker resources](https://docs.aws.amazon.com/eks/latest/userguide/what-is-eks.html), EC2 nodes and their storage, NAT Gateway time and traffic, RDS, ElastiCache, and optional ALB can all create ongoing charges. CloudWatch ingestion, retained logs, Container Insights, alarms, dashboards, and Secrets Manager may add charges; data transfer and public IPv4 usage may also matter. Check current service pricing and project eligibility before every deployment; no exact cost is claimed here.
-
-Use a short deployment window, small nonproduction capacity, intentional log retention, and a reviewed Terraform plan. Check spend status in AWS Settings → Billing, set a budget where available, and destroy the lab after experiments. Reducing replicas may lower EC2 usage but does not remove fixed cluster, NAT, or managed-service charges. A single NAT Gateway reduces cost relative to one per zone but weakens egress availability.
+This increment does not create EKS, EC2, NAT, RDS, ElastiCache, or a load balancer. S3 state storage and requests can incur charges; network traffic and future public IPv4 use may also be charged. The full target architecture must **not** be assumed to fit within Free Tier benefits. Check the project's eligibility, budget, and current AWS prices before enabling each billable component. A free-plan project may also have service restrictions; a successful plan does not prove that a service can be created.
 
 ## Teardown
 
-When implementation exists, remove Kubernetes resources that create external load balancers before destroying their supporting VPC resources. From the Terraform root, review a `terraform plan -destroy` and run `terraform destroy` using the same backend and inputs used to create the stack. Handle retained snapshots and deletion protection deliberately; do not discard data or the state bucket until the destroy result is confirmed.
-
-Verify in the AWS Management Console, in the selected Region, that EKS clusters and node groups, EC2 instances and volumes, load balancers, NAT Gateways, RDS instances and snapshots, ElastiCache resources, and billable CloudWatch resources are gone. Check for remaining public IPv4 addresses and other resources created outside Terraform. Remove the S3 state bucket only after confirming that no managed resources remain and state is no longer needed, then review AWS Settings → Billing for residual charges.
+Before destroying the platform, review a destroy plan from `terraform/platform` using the same S3 backend and Region, then run `terraform destroy` only when its resources are no longer needed. Check the selected Region for remaining VPC resources. Disable and delete both IAM access keys before destroying bootstrap **last**, after the platform state is empty and no workflow needs the users. Its S3 bucket has `force_destroy = false`; retain a secure copy of state as needed and deliberately remove all object versions and lockfiles before deleting the bucket. Verify in AWS Settings → Billing that charges have stopped.
 
 ## Future Improvements
 
-- Multi-AZ RDS, cache replication/failover, and one NAT Gateway per zone for a stronger availability model.
-- HPA and node autoscaling with observed scaling behavior and capacity limits.
-- VPC endpoints to reduce dependency on NAT for selected AWS service traffic.
-- GitHub Actions CI/CD with AWS OIDC, separate plan and apply permissions, and explicit deployment approval.
-- Deeper monitoring: service-level objectives, traces, synthetic checks, and tested alert routing.
+The next architecture changes can add an egress design, security groups, EKS managed node groups, Pod Identity, PostgreSQL, Valkey, the FastAPI workload, ingress, and CloudWatch telemetry. Production-grade options include per-zone NAT, Multi-AZ data services, VPC endpoints, autoscaling, and tested alerts. Each addition should have an explicit cost and failure-mode review before apply.
 
 ## Lessons Learned
 
-This section will collect findings from actual deployments and experiments: VPC CNI and subnet IP allocation versus GKE networking, EKS control-plane and node responsibilities versus GKE, Pod Identity versus GCP Workload Identity, AWS security-group boundaries, managed-service availability behavior, CloudWatch trade-offs, and the operational cost of a small Kubernetes lab. Findings will include the configuration tested and the observed result; there are no findings to report yet.
+The first bootstrap apply showed that the new AWS experience's managed service control policy can block an IAM API even when the signed-in role otherwise has broad permissions. The Free and Paid project policies both deny IAM identity-provider operations; upgrading to Paid alone would not enable GitHub OIDC. Terraform retained the S3 resources created before the failure in local bootstrap state. Future entries will compare VPC CNI with GKE networking, EKS control-plane responsibilities, IAM and Pod Identity with Workload Identity, security-group boundaries, managed-service failover, and the actual operational cost of a small Kubernetes lab.
