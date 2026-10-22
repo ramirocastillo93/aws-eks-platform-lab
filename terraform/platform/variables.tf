@@ -11,6 +11,7 @@ variable "aws_region" {
 variable "eks_api_allowed_cidrs" {
   description = "Public IPv4 CIDRs allowed to reach the EKS Kubernetes API endpoint. Supply as a JSON list through TF_VAR_eks_api_allowed_cidrs."
   type        = list(string)
+  sensitive   = true
 
   validation {
     condition     = length(var.eks_api_allowed_cidrs) > 0 && length(var.eks_api_allowed_cidrs) <= 40 && alltrue([for cidr in var.eks_api_allowed_cidrs : can(cidrnetmask(cidr))]) && !contains(var.eks_api_allowed_cidrs, "0.0.0.0/0")

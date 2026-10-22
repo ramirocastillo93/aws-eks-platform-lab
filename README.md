@@ -115,6 +115,7 @@ Set these **GitHub Actions repository secrets**:
 | `TF_STATE_BUCKET` | `terraform output -raw state_bucket_name` |
 | `AWS_TF_PLAN_ACCESS_KEY_ID` | Access key ID for the plan IAM user |
 | `AWS_TF_PLAN_SECRET_ACCESS_KEY` | Secret access key for the plan IAM user |
+| `EKS_API_ALLOWED_CIDRS` | JSON list containing your current public IPv4 address in `/32` CIDR notation |
 
 Create a [GitHub environment](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments) named `terraform-apply`, restrict its deployment branches to **`main` only**, and add these **environment secrets**:
 
