@@ -139,6 +139,18 @@ data "aws_iam_policy_document" "apply" {
 
 data "aws_iam_policy_document" "apply_eks" {
   statement {
+    sid       = "CreateEksServiceLinkedRoles"
+    actions   = ["iam:CreateServiceLinkedRole"]
+    resources = ["*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "iam:AWSServiceName"
+      values   = ["eks.amazonaws.com", "eks-nodegroup.amazonaws.com"]
+    }
+  }
+
+  statement {
     sid       = "CreateLabEksCluster"
     actions   = ["eks:CreateCluster"]
     resources = ["*"]
