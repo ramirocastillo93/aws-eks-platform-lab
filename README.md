@@ -4,7 +4,7 @@
 
 This is a hands-on AWS platform engineering lab built on existing GCP, GKE, Terraform, Kubernetes, and SRE experience. The long-term goal is a production-inspired EKS platform, developed in small, observable increments. The current increment defines the network foundation and the Terraform delivery path. It does **not** define or deploy EKS, EC2 nodes, a NAT Gateway, RDS, ElastiCache, or an application.
 
-**Status:** Bootstrap has been applied: the S3 state bucket has versioning, default encryption, and public-access blocking, and separate plan/apply IAM users with policies exist. Access keys were created outside Terraform and configured as GitHub secrets by the repository owner. The first `main` workflow apply succeeded, and the VPC, four subnets across two Availability Zones, route tables, and Internet Gateway were verified in AWS. The PR plan path has passed and uploaded only its review metadata; the merge apply path has not yet run. An active GitHub ruleset requires PRs and a current passing `plan` check for `main`. The initial bootstrap attempt failed because the project's AWS service control policy denied GitHub OIDC provider creation; the IAM user design was then applied successfully. The selected Region is `us-east-2` (Ohio). Both Terraform roots reject another Region.
+**Status:** Bootstrap has been applied: the S3 state bucket has versioning, default encryption, and public-access blocking, and separate plan/apply IAM users with policies exist. Access keys were created outside Terraform and configured as GitHub secrets by the repository owner. The first `main` workflow apply succeeded, and the VPC, four subnets across two Availability Zones, route tables, and Internet Gateway were verified in AWS. The PR plan path has passed and uploaded only its review metadata. The first merge apply was blocked by the `main`-only GitHub environment before its job started; the apply trigger is being changed to the protected `main` push and remains unverified. An active GitHub ruleset requires PRs and a current passing `plan` check for `main`. The initial bootstrap attempt failed because the project's AWS service control policy denied GitHub OIDC provider creation; the IAM user design was then applied successfully. The selected Region is `us-east-2` (Ohio). Both Terraform roots reject another Region.
 
 ## Architecture
 
@@ -127,7 +127,7 @@ Create a [GitHub environment](https://docs.github.com/en/actions/how-tos/deploy/
 
 ## Deployment
 
-The workflow runs `terraform fmt`, `terraform init`, and `terraform validate` before loading AWS credentials. On a same-repository PR, it creates a saved plan, prints the reviewable plan in the job log, and uploads only a fingerprint of its full JSON representation and the source tree. Fork PRs fail before loading AWS credentials. When that PR is merged into `main`, the environment-restricted job checks out the merge commit, finds the successful PR plan artifact for the exact source tree, creates a fresh plan, and applies it only if its fingerprint matches. A changed configuration, refreshed state, or changed plan blocks apply and requires another PR plan. Direct pushes do not trigger apply.
+The workflow runs `terraform fmt`, `terraform init`, and `terraform validate` before loading AWS credentials. On a same-repository PR, it creates a saved plan, prints the reviewable plan in the job log, and uploads only a fingerprint of its full JSON representation and the source tree. Fork PRs fail before loading AWS credentials. A push to protected `main` starts the environment-restricted job, which checks that the commit is a merged same-repository PR, finds its successful PR plan artifact for the exact source tree, creates a fresh plan, and applies it only if its fingerprint matches. A changed configuration, refreshed state, or changed plan blocks apply and requires another PR plan. The ruleset prevents direct pushes to `main`; the merge check also prevents apply if that protection is bypassed.
 
 The binary plan is never uploaded to this public repository: [Terraform warns](https://developer.hashicorp.com/terraform/cli/commands/plan) that saved plans may contain unredacted sensitive values. A GitHub ruleset targeting `main` must enforce **Require a pull request before merging** and **Require status checks to pass** with the `plan` job selected. Configure this in **Settings → Rules → Rulesets**, and verify the rule is active before relying on it.
 
@@ -141,7 +141,7 @@ terraform validate
 terraform plan
 ```
 
-Review the plan before merging. The initial direct `main` apply succeeded before this workflow change, and the expected VPC resources were verified in the selected Region. The PR plan passed; the merge apply and fingerprint comparison remain unverified until this workflow is merged.
+Review the plan before merging. The initial direct `main` apply succeeded before this workflow change, and the expected VPC resources were verified in the selected Region. The PR plan passed; the revised merge apply and fingerprint comparison remain unverified until this workflow is merged.
 
 ## Observability & Reliability
 
