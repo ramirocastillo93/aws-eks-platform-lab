@@ -27,6 +27,7 @@ jobs:
         working-directory: terraform/platform
     steps:
       - name: Reject fork PRs before loading credentials
+        working-directory: ${{ github.workspace }}
         env:
           HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
           BASE_REPOSITORY: ${{ github.repository }}
