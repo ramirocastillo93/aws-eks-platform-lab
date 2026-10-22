@@ -4,6 +4,9 @@ locals {
   lock_arn  = "${local.state_arn}.tflock"
 }
 
+data "aws_caller_identity" "current" {}
+data "aws_partition" "current" {}
+
 resource "aws_s3_bucket" "state" {
   bucket        = var.state_bucket_name
   force_destroy = false
@@ -79,6 +82,24 @@ data "aws_iam_policy_document" "plan" {
       values   = [var.aws_region]
     }
   }
+
+  statement {
+    sid       = "ReadEks"
+    actions   = ["eks:Describe*", "eks:List*"]
+    resources = ["*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestedRegion"
+      values   = [var.aws_region]
+    }
+  }
+
+  statement {
+    sid       = "ReadIamRolesAndPolicies"
+    actions   = ["iam:Get*", "iam:List*"]
+    resources = ["*"]
+  }
 }
 
 data "aws_iam_policy_document" "apply" {
@@ -101,6 +122,8 @@ data "aws_iam_policy_document" "apply" {
       "ec2:AssociateRouteTable", "ec2:DisassociateRouteTable",
       "ec2:ReplaceRouteTableAssociation",
       "ec2:CreateRoute", "ec2:DeleteRoute", "ec2:ReplaceRoute",
+      "ec2:AllocateAddress", "ec2:ReleaseAddress",
+      "ec2:CreateNatGateway", "ec2:DeleteNatGateway",
       "ec2:CreateTags", "ec2:DeleteTags"
     ]
     resources = ["*"]
@@ -109,6 +132,78 @@ data "aws_iam_policy_document" "apply" {
       test     = "StringEquals"
       variable = "aws:RequestedRegion"
       values   = [var.aws_region]
+    }
+  }
+
+}
+
+data "aws_iam_policy_document" "apply_eks" {
+  statement {
+    sid       = "CreateLabEksCluster"
+    actions   = ["eks:CreateCluster"]
+    resources = ["*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestedRegion"
+      values   = [var.aws_region]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestTag/Project"
+      values   = ["aws-eks-platform-lab"]
+    }
+  }
+
+  statement {
+    sid = "ManageLabEksResources"
+    actions = [
+      "eks:DeleteCluster", "eks:UpdateClusterConfig", "eks:UpdateClusterVersion",
+      "eks:CreateNodegroup", "eks:DeleteNodegroup", "eks:UpdateNodegroupConfig",
+      "eks:CreateAddon", "eks:DeleteAddon", "eks:UpdateAddon",
+      "eks:CreateAccessEntry", "eks:DeleteAccessEntry", "eks:UpdateAccessEntry",
+      "eks:AssociateAccessPolicy", "eks:DisassociateAccessPolicy",
+      "eks:TagResource", "eks:UntagResource"
+    ]
+    resources = [
+      "arn:${data.aws_partition.current.partition}:eks:${var.aws_region}:${data.aws_caller_identity.current.account_id}:cluster/aws-eks-platform-lab-eks",
+      "arn:${data.aws_partition.current.partition}:eks:${var.aws_region}:${data.aws_caller_identity.current.account_id}:nodegroup/aws-eks-platform-lab-eks/*/*",
+      "arn:${data.aws_partition.current.partition}:eks:${var.aws_region}:${data.aws_caller_identity.current.account_id}:addon/aws-eks-platform-lab-eks/*/*",
+      "arn:${data.aws_partition.current.partition}:eks:${var.aws_region}:${data.aws_caller_identity.current.account_id}:access-entry/aws-eks-platform-lab-eks/*"
+    ]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:ResourceTag/Project"
+      values   = ["aws-eks-platform-lab"]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestedRegion"
+      values   = [var.aws_region]
+    }
+  }
+
+  statement {
+    sid = "ManageLabEksRoles"
+    actions = [
+      "iam:CreateRole", "iam:DeleteRole", "iam:UpdateAssumeRolePolicy",
+      "iam:TagRole", "iam:UntagRole", "iam:AttachRolePolicy", "iam:DetachRolePolicy"
+    ]
+    resources = ["arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:role/aws-eks-platform-lab-eks-*"]
+  }
+
+  statement {
+    sid       = "PassLabEksRolesToEksAndEc2"
+    actions   = ["iam:PassRole"]
+    resources = ["arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:role/aws-eks-platform-lab-eks-*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "iam:PassedToService"
+      values   = ["eks.amazonaws.com", "ec2.amazonaws.com", "pods.eks.amazonaws.com"]
     }
   }
 }
@@ -123,4 +218,15 @@ resource "aws_iam_user_policy" "apply" {
   name   = "terraform-apply-network"
   user   = aws_iam_user.apply.name
   policy = data.aws_iam_policy_document.apply.json
+}
+
+resource "aws_iam_policy" "apply_eks" {
+  name        = "aws-eks-platform-lab-terraform-apply-eks"
+  description = "EKS and service role permissions for the platform Terraform apply identity."
+  policy      = data.aws_iam_policy_document.apply_eks.json
+}
+
+resource "aws_iam_user_policy_attachment" "apply_eks" {
+  user       = aws_iam_user.apply.name
+  policy_arn = aws_iam_policy.apply_eks.arn
 }

@@ -2,7 +2,7 @@
 
 ## Overview
 
-This is a hands-on AWS platform engineering lab built on existing GCP, GKE, Terraform, Kubernetes, and SRE experience. The long-term goal is a production-inspired EKS platform, developed in small, observable increments. The current increment defines the network foundation and the Terraform delivery path. It does **not** define or deploy EKS, EC2 nodes, a NAT Gateway, RDS, ElastiCache, or an application.
+This is a hands-on AWS platform engineering lab built on existing GCP, GKE, Terraform, Kubernetes, and SRE experience. The long-term goal is a production-inspired EKS platform, developed in small, observable increments. The merged baseline contains the network foundation and Terraform delivery path. This branch proposes a NAT Gateway and an EKS cluster with one managed node group in each private-subnet Availability Zone; those resources are not deployed or verified yet. The diagram below remains limited to deployed infrastructure and will be expanded after the EKS apply succeeds.
 
 **Status:** Bootstrap has been applied: the S3 state bucket has versioning, default encryption, and public-access blocking, and separate plan/apply IAM users with policies exist. Access keys were created outside Terraform and configured as GitHub secrets by the repository owner. The first `main` workflow apply succeeded, and the VPC, four subnets across two Availability Zones, route tables, and Internet Gateway were verified in AWS. PR #3's plan passed and uploaded only review metadata. After merge, the `main` workflow retrieved the reviewed-plan artifact, matched the fresh plan fingerprint, and applied successfully; the README follow-up PR #4 also passed its plan and main apply. An active GitHub ruleset requires PRs and a current passing `plan` check for `main`. The initial bootstrap attempt failed because the project's AWS service control policy denied GitHub OIDC provider creation; the IAM user design was then applied successfully. The selected Region is `us-east-2` (Ohio). Both Terraform roots reject another Region.
 
@@ -51,7 +51,7 @@ The public subnets have an Internet Gateway route but do not automatically assig
 
 | Component | Current responsibility |
 | --- | --- |
-| Terraform and AWS provider | Define bootstrap resources and the platform network |
+| Terraform and AWS provider | Define bootstrap resources and platform infrastructure; this branch proposes EKS and private-node egress |
 | Amazon S3 | Versioned, encrypted Terraform state with native S3 lockfiles |
 | IAM and GitHub Actions secrets | Separate programmatic plan and apply identities |
 | VPC, subnets, routes, Internet Gateway | Two-zone network foundation |
@@ -115,6 +115,7 @@ Set these **GitHub Actions repository secrets**:
 | `TF_STATE_BUCKET` | `terraform output -raw state_bucket_name` |
 | `AWS_TF_PLAN_ACCESS_KEY_ID` | Access key ID for the plan IAM user |
 | `AWS_TF_PLAN_SECRET_ACCESS_KEY` | Secret access key for the plan IAM user |
+| `EKS_API_ALLOWED_CIDRS` | JSON list containing your current public IPv4 address in `/32` CIDR notation |
 
 Create a [GitHub environment](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments) named `terraform-apply`, restrict its deployment branches to **`main` only**, and add these **environment secrets**:
 
@@ -166,7 +167,7 @@ Later services will require separate workload IAM roles, security groups, privat
 
 ## Cost Considerations
 
-This increment does not create EKS, EC2, NAT, RDS, ElastiCache, or a load balancer. S3 state storage and requests can incur charges; network traffic and future public IPv4 use may also be charged. The full target architecture must **not** be assumed to fit within Free Tier benefits. Check the project's eligibility, budget, and current AWS prices before enabling each billable component. A free-plan project may also have service restrictions; a successful plan does not prove that a service can be created.
+The proposed EKS increment adds hourly charges for the EKS control plane, two EC2 worker nodes, their EBS volumes, a NAT Gateway, and its public IPv4 address; NAT data processing and CloudWatch usage can add more. These charges draw down the project's available credits and may outlast the $160 budget if left running. Stop the cluster promptly when not in use and destroy it when the experiment ends. The full target architecture must **not** be assumed to fit within Free Tier benefits. Check the project's eligibility, budget, and current AWS prices before enabling each billable component. A free-plan project may also have service restrictions; a successful plan does not prove that a service can be created.
 
 ## Teardown
 

@@ -46,6 +46,30 @@ resource "aws_internet_gateway" "lab" {
   }
 }
 
+# A single NAT gateway keeps this lab's private nodes able to reach AWS APIs
+# and container registries without assigning public addresses. It is a
+# deliberate cost/availability trade-off for a short-lived learning cluster.
+resource "aws_eip" "nat" {
+  domain = "vpc"
+
+  tags = {
+    Name    = "${local.name}-nat"
+    Project = local.name
+  }
+}
+
+resource "aws_nat_gateway" "lab" {
+  allocation_id = aws_eip.nat.id
+  subnet_id     = aws_subnet.public["az_a"].id
+
+  tags = {
+    Name    = "${local.name}-nat"
+    Project = local.name
+  }
+
+  depends_on = [aws_internet_gateway.lab]
+}
+
 # Public subnets (like loadbalancers)
 resource "aws_subnet" "public" {
   for_each                = local.subnet_cidrs.public
@@ -111,6 +135,13 @@ resource "aws_route_table_association" "private" {
   for_each       = aws_subnet.private
   subnet_id      = each.value.id
   route_table_id = aws_route_table.private[each.key].id
+}
+
+resource "aws_route" "private_default" {
+  for_each               = aws_route_table.private
+  route_table_id         = each.value.id
+  destination_cidr_block = "0.0.0.0/0"
+  nat_gateway_id         = aws_nat_gateway.lab.id
 }
 
 moved {
