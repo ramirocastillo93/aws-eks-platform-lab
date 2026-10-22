@@ -16,6 +16,7 @@ concurrency:
 env:
   TF_IN_AUTOMATION: "true"
   TF_VAR_aws_region: ${{ secrets.AWS_REGION }}
+  TF_VAR_eks_api_allowed_cidrs: ${{ vars.EKS_API_ALLOWED_CIDRS }}
   TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
 
 jobs:
@@ -47,6 +48,8 @@ jobs:
           aws-region: ${{ secrets.AWS_REGION }}
           aws-access-key-id: ${{ secrets.AWS_TF_PLAN_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_TF_PLAN_SECRET_ACCESS_KEY }}
+      - name: Mask EKS API allowlist in workflow logs
+        run: jq -r '.[]' <<< "$TF_VAR_eks_api_allowed_cidrs" | while IFS= read -r cidr; do echo "::add-mask::$cidr"; done
       - run: terraform init -reconfigure -input=false -backend-config="bucket=$TF_STATE_BUCKET"
       - run: terraform plan -input=false -no-color -lock-timeout=5m -out=plan.tfplan
       - name: Record reviewed plan fingerprint
@@ -91,6 +94,8 @@ jobs:
           aws-region: ${{ secrets.AWS_REGION }}
           aws-access-key-id: ${{ secrets.AWS_TF_APPLY_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_TF_APPLY_SECRET_ACCESS_KEY }}
+      - name: Mask EKS API allowlist in workflow logs
+        run: jq -r '.[]' <<< "$TF_VAR_eks_api_allowed_cidrs" | while IFS= read -r cidr; do echo "::add-mask::$cidr"; done
       - run: terraform init -reconfigure -input=false -backend-config="bucket=$TF_STATE_BUCKET"
       - run: terraform plan -input=false -no-color -lock-timeout=5m -out=plan.tfplan
       - name: Compare with reviewed PR plan
