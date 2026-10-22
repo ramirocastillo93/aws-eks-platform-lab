@@ -20,13 +20,52 @@ def tree_sha():
     ).strip()
 
 
-def plan_fingerprint(path):
+PLAN_SECTIONS = (
+    "resource_changes",
+    "output_changes",
+    "resource_drift",
+    "deferred_changes",
+    "checks",
+)
+
+
+def _canonical_value(value):
+    """Sort object keys but preserve nested list order and action ordering."""
+    if isinstance(value, dict):
+        return {key: _canonical_value(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_canonical_value(item) for item in value]
+    return value
+
+
+def plan_fingerprints_from_json(plan):
+    """Hash Terraform's actionable plan sections, including sensitive values.
+
+    The raw values never enter logs or review metadata; only section digests do.
+    Terraform plan JSON contains other state and representation details that can
+    change between equivalent plans, so those are deliberately excluded.
+    """
+    fingerprints = {}
+    for section in PLAN_SECTIONS:
+        value = plan.get(section, [] if section != "output_changes" else {})
+        value = _canonical_value(value)
+        # These sections are collections whose element ordering is incidental.
+        # Preserve nested arrays because Terraform uses action/list order to
+        # represent meaningful plan details such as delete-before-create.
+        if isinstance(value, list):
+            value = sorted(
+                value,
+                key=lambda item: json.dumps(item, sort_keys=True, separators=(",", ":")),
+            )
+        canonical = json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+        fingerprints[section] = hashlib.sha256(canonical).hexdigest()
+    return fingerprints
+
+
+def plan_fingerprints(path):
     raw = subprocess.check_output(["terraform", "show", "-json", path])
     plan = json.loads(raw)
-    # This is a run timestamp; changes to the configuration, state or actions remain.
-    plan.pop("timestamp", None)
-    canonical = json.dumps(plan, sort_keys=True, separators=(",", ":")).encode()
-    return hashlib.sha256(canonical).hexdigest()
+    return plan_fingerprints_from_json(plan)
 
 
 def backend_fingerprint():
@@ -38,13 +77,13 @@ def backend_fingerprint():
 
 def write_metadata(path):
     metadata = {
-        "schema": 1,
+        "schema": 2,
         "pr": int(os.environ["PR_NUMBER"]),
         "head_sha": os.environ["PR_HEAD_SHA"],
         "tree_sha": tree_sha(),
         "run_id": int(os.environ["GITHUB_RUN_ID"]),
         "run_attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
-        "plan_fingerprint": plan_fingerprint(path),
+        "plan_fingerprints": plan_fingerprints(path),
         "backend_fingerprint": backend_fingerprint(),
     }
     Path("plan-review.json").write_text(json.dumps(metadata, sort_keys=True) + "\n")
@@ -132,7 +171,7 @@ def find_review():
                 raise ValueError("Unexpected plan review artifact contents")
             metadata = json.loads(bundle.read("plan-review.json"))
         if (
-            metadata.get("schema") == 1
+            metadata.get("schema") == 2
             and metadata.get("pr") == pr
             and metadata.get("head_sha") == head_sha
             and metadata.get("tree_sha") == expected_tree
@@ -149,12 +188,20 @@ def find_review():
 
 def verify_plan(path):
     metadata = json.loads(Path("reviewed-plan.json").read_text())
+    if metadata.get("schema") != 2:
+        raise ValueError("The reviewed plan uses an outdated fingerprint format; create a new PR plan")
     if metadata["tree_sha"] != tree_sha():
         raise ValueError("The checked-out source tree differs from the reviewed PR")
-    if metadata["plan_fingerprint"] != plan_fingerprint(path):
-        raise ValueError("The post-merge plan differs from the reviewed PR plan")
     if metadata["backend_fingerprint"] != backend_fingerprint():
         raise ValueError("The Terraform backend differs from the reviewed PR")
+    reviewed = metadata["plan_fingerprints"]
+    current = plan_fingerprints(path)
+    changed = [section for section in PLAN_SECTIONS if reviewed.get(section) != current[section]]
+    if changed:
+        raise ValueError(
+            "The post-merge plan differs in reviewed Terraform sections: "
+            + ", ".join(changed)
+        )
     print("Post-merge plan matches the reviewed PR plan.")
 
 

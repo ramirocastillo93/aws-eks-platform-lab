@@ -43,6 +43,9 @@ jobs:
       - run: terraform fmt -check -recursive
       - run: terraform init -backend=false -input=false
       - run: terraform validate -no-color
+      - name: Test Terraform plan review guard
+        working-directory: ${{ github.workspace }}
+        run: python3 -m unittest discover -s .github/scripts/tests -v
       - uses: aws-actions/configure-aws-credentials@v6
         with:
           aws-region: ${{ secrets.AWS_REGION }}
@@ -87,6 +90,9 @@ jobs:
       - run: terraform fmt -check -recursive
       - run: terraform init -backend=false -input=false
       - run: terraform validate -no-color
+      - name: Test Terraform plan review guard
+        working-directory: ${{ github.workspace }}
+        run: python3 -m unittest discover -s .github/scripts/tests -v
       - uses: aws-actions/configure-aws-credentials@v6
         with:
           aws-region: ${{ secrets.AWS_REGION }}
