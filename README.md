@@ -2,13 +2,13 @@
 
 ## Overview
 
-This is a hands-on AWS platform engineering lab built on existing GCP, GKE, Terraform, Kubernetes, and SRE experience. The long-term goal is a production-inspired EKS platform, developed in small, observable increments. The merged configuration now includes a NAT Gateway and an EKS cluster with one managed node group in each private-subnet Availability Zone, but those resources are not deployed or verified yet. PR #7's apply was safely blocked because the plan fingerprint check rejected a mismatch. This branch fixes that comparison; the diagram below remains limited to deployed infrastructure until the EKS apply succeeds.
+This is a hands-on AWS platform engineering lab built on existing GCP, GKE, Terraform, Kubernetes, and SRE experience. The long-term goal is a production-inspired EKS platform, developed in small, observable increments. The merged configuration defines a NAT Gateway and an EKS cluster with one managed node group in each private-subnet Availability Zone. The latest apply created the NAT Gateway, EIP, private routes, and EKS IAM roles, but EKS cluster creation failed because its service-linked role permission was missing. That narrowly scoped permission has been applied to the bootstrap IAM policy and is being added to Terraform here. The diagram reflects only infrastructure confirmed created by Terraform.
 
-**Status:** Bootstrap has been applied: the S3 state bucket has versioning, default encryption, and public-access blocking, and separate plan/apply IAM users with policies exist. Access keys were created outside Terraform and configured as GitHub secrets by the repository owner. The first `main` workflow apply succeeded, and the VPC, four subnets across two Availability Zones, route tables, and Internet Gateway were verified in AWS. PR #3's plan passed and uploaded only review metadata. After merge, the `main` workflow retrieved the reviewed-plan artifact, matched the fresh plan fingerprint, and applied successfully; the README follow-up PR #4 also passed its plan and main apply. PR #7 added the EKS and NAT configuration; its plan passed, but the post-merge fingerprint comparison failed, so no EKS resources were applied. An active GitHub ruleset requires PRs and a current passing `plan` check for `main`. The initial bootstrap attempt failed because the project's AWS service control policy denied GitHub OIDC provider creation; the IAM user design was then applied successfully. The selected Region is `us-east-2` (Ohio). Both Terraform roots reject another Region.
+**Status:** Bootstrap has been applied: the S3 state bucket has versioning, default encryption, and public-access blocking, and separate plan/apply IAM users with policies exist. Access keys were created outside Terraform and configured as GitHub secrets by the repository owner. The first `main` workflow apply succeeded, and the VPC, four subnets across two Availability Zones, route tables, and Internet Gateway were verified in AWS. PR #3's plan passed and uploaded only review metadata. After merge, the `main` workflow retrieved the reviewed-plan artifact, matched the fresh plan fingerprint, and applied successfully; the README follow-up PR #4 also passed its plan and main apply. PR #7's apply was first blocked by an overly broad plan fingerprint and then reached AWS but failed to create the EKS control plane because the apply user could not create EKS's service-linked role. Its partial apply created EKS IAM roles, an EIP, a NAT Gateway, and private default routes. The missing permission is now applied locally and constrained to the EKS and EKS node group service names; this branch records it in bootstrap Terraform. The cluster and managed node groups are not yet deployed. An active GitHub ruleset requires PRs and a current passing `plan` check for `main`. The initial bootstrap attempt failed because the project's AWS service control policy denied GitHub OIDC provider creation; the IAM user design was then applied successfully. The selected Region is `us-east-2` (Ohio). Both Terraform roots reject another Region.
 
 ## Architecture
 
-The diagram shows **deployed and verified resources**. It will grow only when a new component is implemented.
+The diagram shows resources confirmed created by Terraform. EKS cluster creation and managed node groups are still pending.
 
 ```mermaid
 flowchart LR
@@ -16,12 +16,14 @@ flowchart LR
 
     subgraph aws[AWS project]
         iam[Separate IAM users and policies<br/>for plan and apply: deployed]
+        eksroles[EKS cluster, node, and VPC CNI roles<br/>created; cluster not yet available]
         state[S3 Terraform state bucket<br/>versioning and encryption deployed<br/>lockfile configured for platform]
 
         subgraph region[Selected Region: us-east-2]
             subgraph vpc[VPC 10.0.0.0/16: deployed]
                 igw[Internet Gateway]
                 prt[Public route table<br/>default route to IGW]
+                nat[NAT Gateway + Elastic IP<br/>deployed in public subnet 1]
                 subgraph az1[Availability Zone 1]
                     pub1[Public subnet<br/>10.0.0.0/24]
                     priv1[Private subnet<br/>10.0.10.0/24]
@@ -30,8 +32,8 @@ flowchart LR
                     pub2[Public subnet<br/>10.0.1.0/24]
                     priv2[Private subnet<br/>10.0.11.0/24]
                 end
-                r1[Private route table 1<br/>local route only]
-                r2[Private route table 2<br/>local route only]
+                r1[Private route table 1<br/>default route to NAT]
+                r2[Private route table 2<br/>default route to NAT]
             end
         end
     end
@@ -39,19 +41,24 @@ flowchart LR
     gh -. access keys in GitHub secrets .-> iam
     iam --> state
     iam --> vpc
+    iam --> eksroles
     igw --> prt
     prt --> pub1 & pub2
-    r1 --> priv1
-    r2 --> priv2
+    nat --> pub1
+    priv1 --- r1
+    priv2 --- r2
+    priv1 --> r1
+    priv2 --> r2
+    r1 & r2 --> nat
 ```
 
-The public subnets have an Internet Gateway route but do not automatically assign public IPv4 addresses. The private subnets have no internet egress yet. Nothing is scheduled into these subnets. IAM users are global AWS resources; the state bucket and VPC are Regional resources outside and inside the VPC respectively.
+The public subnets have an Internet Gateway route but do not automatically assign public IPv4 addresses. The NAT Gateway resides in public subnet 1 and provides outbound internet access to both private subnets; it does not allow unsolicited inbound connections. No EKS control plane or node groups are running yet. IAM users and roles are global AWS resources; the state bucket and VPC are Regional resources outside and inside the VPC respectively.
 
 ## Technology Stack
 
 | Component | Current responsibility |
 | --- | --- |
-| Terraform and AWS provider | Define bootstrap resources and platform infrastructure; this branch proposes EKS and private-node egress |
+| Terraform and AWS provider | Define bootstrap resources and platform infrastructure, including the EKS service-linked-role permission and private-node egress |
 | Amazon S3 | Versioned, encrypted Terraform state with native S3 lockfiles |
 | IAM and GitHub Actions secrets | Separate programmatic plan and apply identities |
 | VPC, subnets, routes, Internet Gateway | Two-zone network foundation |
@@ -59,10 +66,10 @@ The public subnets have an Internet Gateway route but do not automatically assig
 
 ## Design Decisions
 
-- **Small first increment:** VPC, subnets, routes, and an Internet Gateway are enough to establish the network layout. NAT and the managed compute/data services are omitted until their costs and operational behavior can be reviewed separately.
-- **Private subnet isolation:** Each private subnet has its own route table with only the VPC's local route. Future private nodes will need an explicit NAT or VPC endpoint design before they can pull images or call AWS services.
+- **Lab egress:** One NAT Gateway in a public subnet provides outbound access for private resources. This keeps the node groups private but creates a single-AZ egress dependency and ongoing hourly and data-processing charges; it is a lab cost choice, not a production availability design.
+- **Private subnet isolation:** Each private subnet has its own route table. The default route points to the NAT Gateway, so private resources can reach external services without public IPs while remaining inaccessible to unsolicited inbound internet traffic.
 - **Two Availability Zones:** Terraform selects two available zones in the selected Region. This provides subnet placement options; it does not yet provide workload availability.
-- **Separated privileges:** A PR plan user can read network resources and state, while the `main` apply user can modify the current network and state. The apply credential is kept in a GitHub environment restricted to `main`; the PR workflow cannot access that environment. The EC2 write policy is limited by action and Region, but uses `Resource: *` where resource IDs are unknown before creation; tightening it as resources become known is future work.
+- **Separated privileges:** A PR plan user can read network resources and state, while the `main` apply user can modify the platform and state. The apply credential is kept in a GitHub environment restricted to `main`; the PR workflow cannot access that environment. EKS service-linked-role creation is constrained to the EKS and EKS node group service names. Some EC2 write actions use `Resource: *` where resource IDs are unknown before creation and are scoped by action and Region.
 - **Credential trade-off:** The project's [managed AWS policy](https://docs.aws.amazon.com/accounts/latest/reference/scps-and-rcps-for-projects.html) denies creation of IAM identity providers, preventing GitHub OIDC. Dedicated IAM users with access keys are a Free Plan compatible fallback. Long-lived keys require rotation and careful protection. Terraform manages only the users and policies; key material never enters Terraform state.
 - **State bootstrap:** The bucket and GitHub IAM users are created by a separate Terraform root using local state. The platform root uses S3 state and [native lockfiles](https://developer.hashicorp.com/terraform/language/backend/s3). Local bootstrap state must be retained securely and never committed.
 
@@ -167,7 +174,7 @@ Later services will require separate workload IAM roles, security groups, privat
 
 ## Cost Considerations
 
-The proposed EKS increment adds hourly charges for the EKS control plane, two EC2 worker nodes, their EBS volumes, a NAT Gateway, and its public IPv4 address; NAT data processing and CloudWatch usage can add more. These charges draw down the project's available credits and may outlast the $160 budget if left running. Stop the cluster promptly when not in use and destroy it when the experiment ends. The full target architecture must **not** be assumed to fit within Free Tier benefits. Check the project's eligibility, budget, and current AWS prices before enabling each billable component. A free-plan project may also have service restrictions; a successful plan does not prove that a service can be created.
+The current NAT Gateway and public IPv4 address incur hourly charges even though the EKS control plane has not been created. A successful EKS deployment will add hourly charges for the control plane, two EC2 worker nodes, and their EBS volumes; NAT data processing and CloudWatch usage can add more. These charges draw down the project's available credits and may outlast the $160 budget if left running. Destroy the lab when it is not in use. The full target architecture must **not** be assumed to fit within Free Tier benefits. Check the project's eligibility, budget, and current AWS prices before enabling each billable component. A free-plan project may also have service restrictions; a successful plan does not prove that a service can be created.
 
 ## Teardown
 
@@ -175,7 +182,7 @@ Before destroying the platform, review a destroy plan from `terraform/platform` 
 
 ## Future Improvements
 
-The next architecture changes can add an egress design, security groups, EKS managed node groups, Pod Identity, PostgreSQL, Valkey, the FastAPI workload, ingress, and CloudWatch telemetry. Production-grade options include per-zone NAT, Multi-AZ data services, VPC endpoints, autoscaling, and tested alerts. Each addition should have an explicit cost and failure-mode review before apply.
+The next architecture changes can complete the EKS cluster and managed node groups, then add security groups, PostgreSQL, Valkey, the FastAPI workload, ingress, and CloudWatch telemetry. Production-grade options include per-zone NAT, Multi-AZ data services, VPC endpoints, autoscaling, and tested alerts. Each addition should have an explicit cost and failure-mode review before apply.
 
 ## Lessons Learned
 
