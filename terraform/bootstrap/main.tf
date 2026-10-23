@@ -109,6 +109,67 @@ resource "aws_iam_user_policy_attachment" "apply_read_data_services" {
   policy_arn = aws_iam_policy.read_data_services.arn
 }
 
+data "aws_iam_policy_document" "route53_read" {
+  statement {
+    sid = "ReadHostedZone"
+    actions = [
+      "route53:GetHostedZone",
+      "route53:ListTagsForResource"
+    ]
+    resources = ["arn:${data.aws_partition.current.partition}:route53:::hostedzone/*"]
+  }
+}
+
+resource "aws_iam_policy" "route53_read" {
+  name        = "aws-eks-platform-lab-terraform-route53-read"
+  description = "Read Route 53 hosted zone configuration and tags during Terraform planning."
+  policy      = data.aws_iam_policy_document.route53_read.json
+}
+
+resource "aws_iam_user_policy_attachment" "plan_route53_read" {
+  user       = aws_iam_user.plan.name
+  policy_arn = aws_iam_policy.route53_read.arn
+}
+
+resource "aws_iam_user_policy_attachment" "apply_route53_read" {
+  user       = aws_iam_user.apply.name
+  policy_arn = aws_iam_policy.route53_read.arn
+}
+
+data "aws_iam_policy_document" "route53_apply" {
+  statement {
+    sid       = "CreateHostedZone"
+    actions   = ["route53:CreateHostedZone"]
+    resources = ["*"]
+  }
+
+  statement {
+    sid = "ManageHostedZone"
+    actions = [
+      "route53:DeleteHostedZone",
+      "route53:ChangeTagsForResource"
+    ]
+    resources = ["arn:${data.aws_partition.current.partition}:route53:::hostedzone/*"]
+  }
+
+  statement {
+    sid       = "WaitForChange"
+    actions   = ["route53:GetChange"]
+    resources = ["arn:${data.aws_partition.current.partition}:route53:::change/*"]
+  }
+}
+
+resource "aws_iam_policy" "route53_apply" {
+  name        = "aws-eks-platform-lab-terraform-route53-apply"
+  description = "Manage the Route 53 hosted zone used by the platform Terraform apply identity."
+  policy      = data.aws_iam_policy_document.route53_apply.json
+}
+
+resource "aws_iam_user_policy_attachment" "apply_route53" {
+  user       = aws_iam_user.apply.name
+  policy_arn = aws_iam_policy.route53_apply.arn
+}
+
 data "aws_iam_policy_document" "plan" {
   statement {
     sid       = "ReadStateBucket"
@@ -157,15 +218,6 @@ data "aws_iam_policy_document" "plan" {
     actions   = ["iam:Get*", "iam:List*"]
     resources = ["*"]
   }
-
-  statement {
-    sid = "ReadRoute53HostedZone"
-    actions = [
-      "route53:GetHostedZone",
-      "route53:ListTagsForResource"
-    ]
-    resources = ["arn:${data.aws_partition.current.partition}:route53:::hostedzone/*"]
-  }
 }
 
 data "aws_iam_policy_document" "apply" {
@@ -199,27 +251,6 @@ data "aws_iam_policy_document" "apply" {
       variable = "aws:RequestedRegion"
       values   = [var.aws_region]
     }
-  }
-
-  statement {
-    sid       = "CreateRoute53HostedZone"
-    actions   = ["route53:CreateHostedZone"]
-    resources = ["*"]
-  }
-
-  statement {
-    sid = "ManageRoute53HostedZone"
-    actions = [
-      "route53:DeleteHostedZone",
-      "route53:ChangeTagsForResource"
-    ]
-    resources = ["arn:${data.aws_partition.current.partition}:route53:::hostedzone/*"]
-  }
-
-  statement {
-    sid       = "WaitForRoute53Change"
-    actions   = ["route53:GetChange"]
-    resources = ["arn:${data.aws_partition.current.partition}:route53:::change/*"]
   }
 }
 
