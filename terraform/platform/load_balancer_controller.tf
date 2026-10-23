@@ -55,6 +55,12 @@ data "aws_iam_policy_document" "load_balancer_controller" {
   }
 
   statement {
+    sid       = "ReadDocmostCognitoClient"
+    actions   = ["cognito-idp:DescribeUserPoolClient"]
+    resources = [aws_cognito_user_pool.docmost_access.arn]
+  }
+
+  statement {
     sid       = "CreateElasticLoadBalancingServiceLinkedRole"
     actions   = ["iam:CreateServiceLinkedRole"]
     resources = ["*"]

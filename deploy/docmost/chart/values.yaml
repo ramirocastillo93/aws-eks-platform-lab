@@ -14,6 +14,12 @@ ingress:
   # Optional ACM certificate ARN override. When empty, the controller discovers
   # an issued certificate matching ingress.host in the selected Region.
   certificateArn: ""
+  cognito:
+    # Supply these in the ignored deploy/docmost/values.local.yaml overlay.
+    userPoolArn: ""
+    userPoolClientId: ""
+    userPoolDomain: ""
+    scopes: "openid email"
 
 service:
   type: ClusterIP
