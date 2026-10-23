@@ -15,8 +15,12 @@ data "aws_iam_policy_document" "docmost_https_read" {
   }
 
   statement {
-    sid       = "DiscoverDocmostLoadBalancer"
-    actions   = ["elasticloadbalancing:DescribeLoadBalancers", "elasticloadbalancing:DescribeTags"]
+    sid = "DiscoverDocmostLoadBalancer"
+    actions = [
+      "elasticloadbalancing:DescribeLoadBalancers",
+      "elasticloadbalancing:DescribeLoadBalancerAttributes",
+      "elasticloadbalancing:DescribeTags"
+    ]
     resources = ["*"]
 
     condition {
