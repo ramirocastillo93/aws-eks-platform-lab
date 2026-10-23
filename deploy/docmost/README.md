@@ -9,7 +9,7 @@ Docmost's upstream self-hosting guide documents Docker Compose rather than Helm.
 - The EKS cluster is reachable from the operator machine. Configure `kubectl` for `aws-eks-platform-lab-eks` in the selected Region (`us-east-2`) using your local AWS profile.
 - Helm, Kustomize, kubectl, and AWS CLI are installed.
 - The RDS PostgreSQL and ElastiCache Valkey endpoints from Terraform outputs are reachable from EKS nodes.
-- The Service remains `ClusterIP`; the chart Ingress creates a public ALB through the AWS Load Balancer Controller. The default listeners use HTTP until you supply a DNS name and ACM certificate ARN for HTTPS. Do not submit credentials over the HTTP endpoint.
+- The Service remains `ClusterIP`; the chart Ingress creates a public ALB through the AWS Load Balancer Controller. The checked-in Ingress uses `docmost-checkr.nakamalabs.io`, enables HTTP and HTTPS, and redirects HTTP to HTTPS. An issued ACM certificate matching that host must exist in `us-east-2`; the controller discovers it from the Ingress host rule. Do not submit credentials over HTTP.
 - A dedicated PostgreSQL application role owns the `docmost` database for migrations. Install the `unaccent` and `pg_trgm` extensions during the one-time bootstrap with the RDS-managed master credential; do not use that credential for the application.
 
 ## Prepare local credentials
@@ -85,13 +85,7 @@ helm upgrade --install docmost deploy/docmost/chart \
   --values deploy/docmost/chart/values.yaml
 ```
 
-The Ingress starts with a public HTTP listener so the ALB DNS name can be discovered. Use HTTP only to confirm the load balancer responds; do not enter credentials or invite users until HTTPS is configured. Get the assigned URL and set it as `appUrl` in `chart/values.yaml`, then upgrade the release so Docmost generates correct absolute links:
-
-```sh
-kubectl -n docmost get ingress docmost
-```
-
-For HTTPS, point a DNS name at the ALB, request/validate an ACM certificate in `us-east-2`, then set `ingress.host`, `ingress.certificateArn`, and `appUrl: "https://your-hostname"` in the values file and run the same Helm upgrade. The chart then redirects HTTP to HTTPS. The app needs the HTTPS route to support WebSockets.
+The checked-in values configure the final host and HTTPS URL. Ensure an issued ACM certificate covering `docmost-checkr.nakamalabs.io` exists in `us-east-2`. The AWS Load Balancer Controller discovers the certificate from the Ingress host rule, so no certificate ARN or command-line override is needed. The install command above also serves as the declarative upgrade command; use it again after chart changes. Terraform manages the Route 53 alias for `docmost-checkr.nakamalabs.io`; no manual DNS change is needed. Check the assigned ALB hostname with `kubectl -n docmost get ingress docmost` and verify DNS points to that Ingress ALB. The chart configures both ALB listeners and redirects HTTP to HTTPS. The app needs the HTTPS route to support WebSockets.
 
 The first command generates the Secret locally and sends it to the Kubernetes API without printing its contents. The second command creates the Helm release. Neither command is run as part of preparing these files.
 

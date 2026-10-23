@@ -22,3 +22,4 @@ override.tf.json
 __pycache__/
 *.pyc
 deploy/docmost/runtime.env
+*.pem
