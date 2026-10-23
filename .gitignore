@@ -1,5 +1,6 @@
 .agents
 .cursor
+.codex
 AGENTS.md
 CLAUDE.md
 GEMINI.md
@@ -20,3 +21,4 @@ override.tf.json
 *_override.tf.json
 __pycache__/
 *.pyc
+deploy/docmost/runtime.env

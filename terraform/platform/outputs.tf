@@ -15,15 +15,15 @@ output "private_subnet_ids" {
 
 output "eks_cluster_name" {
   description = "EKS cluster name."
-  value       = aws_eks_cluster.lab.name
+  value       = module.eks.cluster_name
 }
 
 output "eks_cluster_endpoint" {
   description = "Kubernetes API endpoint for the EKS cluster."
-  value       = aws_eks_cluster.lab.endpoint
+  value       = module.eks.cluster_endpoint
 }
 
 output "eks_node_group_names" {
   description = "Managed node groups, each pinned to one private subnet/AZ."
-  value       = { for az, node_group in aws_eks_node_group.lab : az => node_group.node_group_name }
+  value       = { for az in ["az_a", "az_b"] : az => "${local.name}-eks-${az}" }
 }

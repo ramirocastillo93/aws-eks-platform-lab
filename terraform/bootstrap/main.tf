@@ -96,6 +96,21 @@ data "aws_iam_policy_document" "plan" {
   }
 
   statement {
+    sid = "ReadDataServices"
+    actions = [
+      "rds:Describe*", "rds:ListTagsForResource",
+      "elasticache:Describe*", "elasticache:List*"
+    ]
+    resources = ["*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestedRegion"
+      values   = [var.aws_region]
+    }
+  }
+
+  statement {
     sid       = "ReadIamRolesAndPolicies"
     actions   = ["iam:Get*", "iam:List*"]
     resources = ["*"]
@@ -207,6 +222,77 @@ data "aws_iam_policy_document" "apply_eks" {
       "iam:TagRole", "iam:UntagRole", "iam:AttachRolePolicy", "iam:DetachRolePolicy"
     ]
     resources = ["arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:role/aws-eks-platform-lab-eks-*"]
+  }
+
+  statement {
+    sid     = "CreateDataServiceLinkedRoles"
+    actions = ["iam:CreateServiceLinkedRole"]
+    resources = [
+      "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:role/aws-service-role/rds.amazonaws.com/AWSServiceRoleForRDS",
+      "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:role/aws-service-role/elasticache.amazonaws.com/AWSServiceRoleForElastiCache*"
+    ]
+
+    condition {
+      test     = "StringEquals"
+      variable = "iam:AWSServiceName"
+      values   = ["rds.amazonaws.com", "elasticache.amazonaws.com"]
+    }
+  }
+
+  statement {
+    sid       = "ConfigureElastiCacheServiceLinkedRole"
+    actions   = ["iam:PutRolePolicy"]
+    resources = ["arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:role/aws-service-role/elasticache.amazonaws.com/AWSServiceRoleForElastiCache*"]
+  }
+
+  statement {
+    sid = "ManageDataServiceSecurityGroups"
+    actions = [
+      "ec2:CreateSecurityGroup", "ec2:DeleteSecurityGroup",
+      "ec2:AuthorizeSecurityGroupIngress", "ec2:RevokeSecurityGroupIngress",
+      "ec2:AuthorizeSecurityGroupEgress", "ec2:RevokeSecurityGroupEgress",
+      "ec2:UpdateSecurityGroupRuleDescriptionsIngress",
+      "ec2:UpdateSecurityGroupRuleDescriptionsEgress"
+    ]
+    resources = ["*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestedRegion"
+      values   = [var.aws_region]
+    }
+  }
+
+  statement {
+    sid = "ManageLabRds"
+    actions = [
+      "rds:CreateDBInstance", "rds:ModifyDBInstance", "rds:DeleteDBInstance",
+      "rds:CreateDBSubnetGroup", "rds:ModifyDBSubnetGroup", "rds:DeleteDBSubnetGroup",
+      "rds:AddTagsToResource", "rds:RemoveTagsFromResource"
+    ]
+    resources = ["*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestedRegion"
+      values   = [var.aws_region]
+    }
+  }
+
+  statement {
+    sid = "ManageLabElastiCache"
+    actions = [
+      "elasticache:CreateReplicationGroup", "elasticache:ModifyReplicationGroup", "elasticache:DeleteReplicationGroup",
+      "elasticache:CreateCacheSubnetGroup", "elasticache:ModifyCacheSubnetGroup", "elasticache:DeleteCacheSubnetGroup",
+      "elasticache:AddTagsToResource", "elasticache:RemoveTagsFromResource"
+    ]
+    resources = ["*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestedRegion"
+      values   = [var.aws_region]
+    }
   }
 
   statement {

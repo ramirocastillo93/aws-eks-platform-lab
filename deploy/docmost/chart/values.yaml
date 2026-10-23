@@ -1,0 +1,28 @@
+replicaCount: 1
+
+image:
+  repository: docmost/docmost
+  tag: "0.96.0"
+  pullPolicy: IfNotPresent
+
+# Works with the documented local port-forward. Set the external HTTPS URL
+# when an ingress/reverse proxy is added.
+appUrl: "http://localhost:3000"
+runtimeSecretName: docmost-runtime
+
+service:
+  type: ClusterIP
+  port: 3000
+
+storage:
+  # Temporary lab setting; uploaded files disappear with pod replacement.
+  type: emptyDir
+  size: 10Gi
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi
