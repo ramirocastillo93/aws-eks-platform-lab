@@ -9,7 +9,7 @@ Docmost's upstream self-hosting guide documents Docker Compose rather than Helm.
 - The EKS cluster is reachable from the operator machine. Configure `kubectl` for `aws-eks-platform-lab-eks` in the selected Region (`us-east-2`) using your local AWS profile.
 - Helm, Kustomize, kubectl, and AWS CLI are installed.
 - The RDS PostgreSQL and ElastiCache Valkey endpoints from Terraform outputs are reachable from EKS nodes.
-- The chart leaves Ingress disabled and the Service as `ClusterIP`. Its default `APP_URL` works with a local port-forward. A public deployment needs an HTTPS URL and a separately managed ingress/reverse proxy that supports WebSockets.
+- The Service remains `ClusterIP`; the chart Ingress creates a public ALB through the AWS Load Balancer Controller. The default listeners use HTTP until you supply a DNS name and ACM certificate ARN for HTTPS. Do not submit credentials over the HTTP endpoint.
 - A dedicated PostgreSQL application role owns the `docmost` database for migrations. Install the `unaccent` and `pg_trgm` extensions during the one-time bootstrap with the RDS-managed master credential; do not use that credential for the application.
 
 ## Prepare local credentials
@@ -54,7 +54,29 @@ The `\password` prompt hides the new role's password. Use that role in `DATABASE
 
 ## Install
 
-The default `appUrl` is `http://localhost:3000` for local port-forward access. Set it to your external HTTPS URL when adding an ingress. Review the chart values first. Kustomize creates only the `docmost` namespace and runtime Secret; Helm owns the application Deployment and Service:
+The ALB itself is controller-managed: Terraform provisions its IAM policy/role, Pod Identity association, and public-subnet discovery tags; the Kubernetes Ingress below asks the controller to create and reconcile the ALB. The Terraform CI workflow does not connect to the Kubernetes API. Install the controller from the operator machine after Terraform has applied its prerequisites:
+
+```sh
+CLUSTER="$(terraform -chdir=terraform/platform output -raw eks_cluster_name)"
+REGION="us-east-2"
+VPC_ID="$(terraform -chdir=terraform/platform output -raw vpc_id)"
+aws eks update-kubeconfig --name "$CLUSTER" --region "$REGION"
+helm repo add eks https://aws.github.io/eks-charts
+helm repo update eks
+helm upgrade --install aws-load-balancer-controller eks/aws-load-balancer-controller \
+  --namespace kube-system \
+  --version 1.14.0 \
+  --set clusterName="$CLUSTER" \
+  --set region="$REGION" \
+  --set vpcId="$VPC_ID" \
+  --set serviceAccount.create=true \
+  --set serviceAccount.name=aws-load-balancer-controller
+kubectl -n kube-system rollout status deployment/aws-load-balancer-controller --timeout=180s
+```
+
+The pinned AWS Helm chart `1.14.0` packages controller `v2.14.1`; the matching controller IAM actions are maintained in Terraform. Region and VPC are explicit so the controller does not need node metadata access. EKS Pod Identity Agent is already configured as an EKS add-on, and Terraform creates the controller's Pod Identity association.
+
+Kustomize creates only the `docmost` namespace and runtime Secret; Helm owns the application Deployment, Service, and Ingress:
 
 ```sh
 kubectl apply --server-side -k deploy/docmost
@@ -62,6 +84,14 @@ helm upgrade --install docmost deploy/docmost/chart \
   --namespace docmost \
   --values deploy/docmost/chart/values.yaml
 ```
+
+The Ingress starts with a public HTTP listener so the ALB DNS name can be discovered. Use HTTP only to confirm the load balancer responds; do not enter credentials or invite users until HTTPS is configured. Get the assigned URL and set it as `appUrl` in `chart/values.yaml`, then upgrade the release so Docmost generates correct absolute links:
+
+```sh
+kubectl -n docmost get ingress docmost
+```
+
+For HTTPS, point a DNS name at the ALB, request/validate an ACM certificate in `us-east-2`, then set `ingress.host`, `ingress.certificateArn`, and `appUrl: "https://your-hostname"` in the values file and run the same Helm upgrade. The chart then redirects HTTP to HTTPS. The app needs the HTTPS route to support WebSockets.
 
 The first command generates the Secret locally and sends it to the Kubernetes API without printing its contents. The second command creates the Helm release. Neither command is run as part of preparing these files.
 
@@ -71,7 +101,7 @@ To reach the internal Service for an initial check, use a local port-forward:
 kubectl -n docmost port-forward service/docmost 3000:3000
 ```
 
-Then open `http://localhost:3000`. Configure the external `APP_URL` and HTTPS/WebSocket route before inviting users. Docmost's first setup screen creates the initial workspace owner.
+Then open `http://localhost:3000` for local access, or use the Ingress URL after configuring `appUrl`. Docmost's first setup screen creates the initial workspace owner.
 
 ## Storage and limits
 

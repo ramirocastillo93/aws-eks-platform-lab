@@ -27,3 +27,8 @@ output "eks_node_group_names" {
   description = "Managed node groups, each pinned to one private subnet/AZ."
   value       = { for az in ["az_a", "az_b"] : az => "${local.name}-eks-${az}" }
 }
+
+output "load_balancer_controller_role_arn" {
+  description = "Pod Identity role for the AWS Load Balancer Controller."
+  value       = aws_iam_role.load_balancer_controller.arn
+}
