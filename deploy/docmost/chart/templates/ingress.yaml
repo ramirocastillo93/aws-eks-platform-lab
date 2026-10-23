@@ -11,6 +11,10 @@ metadata:
     alb.ingress.kubernetes.io/healthcheck-path: /api/health
     alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
     alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/auth-type: cognito
+    alb.ingress.kubernetes.io/auth-on-unauthenticated-request: authenticate
+    alb.ingress.kubernetes.io/auth-scope: {{ .Values.ingress.cognito.scopes | quote }}
+    alb.ingress.kubernetes.io/auth-idp-cognito: {{ dict "userPoolARN" (required "ingress.cognito.userPoolArn must be set in deploy/docmost/values.local.yaml" .Values.ingress.cognito.userPoolArn) "userPoolClientID" (required "ingress.cognito.userPoolClientId must be set in deploy/docmost/values.local.yaml" .Values.ingress.cognito.userPoolClientId) "userPoolDomain" (required "ingress.cognito.userPoolDomain must be set in deploy/docmost/values.local.yaml" .Values.ingress.cognito.userPoolDomain) | toJson | quote }}
     {{- if .Values.ingress.certificateArn }}
     alb.ingress.kubernetes.io/certificate-arn: {{ .Values.ingress.certificateArn | quote }}
     {{- end }}

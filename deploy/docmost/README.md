@@ -10,6 +10,7 @@ Docmost's upstream self-hosting guide documents Docker Compose rather than Helm.
 - Helm, Kustomize, kubectl, and AWS CLI are installed.
 - The RDS PostgreSQL and ElastiCache Valkey endpoints from Terraform outputs are reachable from EKS nodes.
 - The Service remains `ClusterIP`; the chart Ingress creates a public ALB through the AWS Load Balancer Controller. The checked-in Ingress uses `docmost-checkr.nakamalabs.io`, enables HTTP and HTTPS, and redirects HTTP to HTTPS. An issued ACM certificate matching that host must exist in `us-east-2`; the controller discovers it from the Ingress host rule. Do not submit credentials over HTTP.
+- The ALB requires Cognito sign-in on HTTPS, using the `openid email` scopes. Cognito's app client must allow these scopes and the ALB callback URL `https://docmost-checkr.nakamalabs.io/oauth2/idpresponse`. Keep the pool ARN, client ID, and domain prefix in the ignored `deploy/docmost/values.local.yaml` overlay; chart rendering fails if any are missing.
 - A dedicated PostgreSQL application role owns the `docmost` database for migrations. Install the `unaccent` and `pg_trgm` extensions during the one-time bootstrap with the RDS-managed master credential; do not use that credential for the application.
 
 ## Prepare local credentials
@@ -80,14 +81,24 @@ Kustomize creates only the `docmost` namespace and runtime Secret; Helm owns the
 
 ```sh
 kubectl apply --server-side -k deploy/docmost
+python3 deploy/docmost/write-cognito-values.py
 helm upgrade --install docmost deploy/docmost/chart \
   --namespace docmost \
-  --values deploy/docmost/chart/values.yaml
+  --values deploy/docmost/chart/values.yaml \
+  --values deploy/docmost/values.local.yaml
 ```
 
-The checked-in values configure the final host and HTTPS URL. Ensure an issued ACM certificate covering `docmost-checkr.nakamalabs.io` exists in `us-east-2`. The AWS Load Balancer Controller discovers the certificate from the Ingress host rule, so no certificate ARN or command-line override is needed. The install command above also serves as the declarative upgrade command; use it again after chart changes. Terraform manages the Route 53 alias for `docmost-checkr.nakamalabs.io`; no manual DNS change is needed. Check the assigned ALB hostname with `kubectl -n docmost get ingress docmost` and verify DNS points to that Ingress ALB. The chart configures both ALB listeners and redirects HTTP to HTTPS. The app needs the HTTPS route to support WebSockets.
+The checked-in values configure the final host, HTTPS URL, and scopes. The Python command reads the three non-secret Cognito identifiers from Terraform outputs and writes the ignored local overlay; run it with your Terraform AWS profile configured. Re-run it after Cognito resource changes, then use the same `helm upgrade --install` command after chart or values changes. Ensure an issued ACM certificate covering `docmost-checkr.nakamalabs.io` exists in `us-east-2`. The controller discovers the certificate from the Ingress host rule. Terraform manages the Route 53 alias. Check the rendered annotations and verify that an unauthenticated request redirects to Cognito and HTTP redirects to HTTPS:
 
-The first command generates the Secret locally and sends it to the Kubernetes API without printing its contents. The second command creates the Helm release. Neither command is run as part of preparing these files.
+```sh
+kubectl -n docmost get ingress docmost -o yaml
+curl -sSI http://docmost-checkr.nakamalabs.io/
+curl -sSI https://docmost-checkr.nakamalabs.io/
+```
+
+The HTTPS response should redirect to the configured Cognito hosted domain; the HTTP response should redirect to HTTPS. The Ingress keeps both listeners and the HTTP-to-HTTPS redirect, and the HTTPS route continues to support WebSockets.
+
+Kustomize generates the Secret locally and sends it to the Kubernetes API without printing its contents. The Helm command uses the local Cognito overlay and creates or updates the release.
 
 To reach the internal Service for an initial check, use a local port-forward:
 

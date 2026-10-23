@@ -52,3 +52,18 @@ output "docmost_certificate_arn" {
   description = "Validated ACM certificate ARN for the Docmost ALB HTTPS listener."
   value       = aws_acm_certificate_validation.docmost.certificate_arn
 }
+
+output "docmost_cognito_user_pool_arn" {
+  description = "Cognito user pool ARN for the Docmost Ingress authentication action."
+  value       = aws_cognito_user_pool.docmost_access.arn
+}
+
+output "docmost_cognito_client_id" {
+  description = "Cognito app client ID for the Docmost Ingress authentication action."
+  value       = aws_cognito_user_pool_client.docmost_access.id
+}
+
+output "docmost_cognito_domain_prefix" {
+  description = "Cognito domain prefix for the Docmost Ingress authentication action."
+  value       = aws_cognito_user_pool_domain.docmost_access.domain
+}
