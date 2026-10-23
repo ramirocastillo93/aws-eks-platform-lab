@@ -4,7 +4,7 @@
 
 This is a hands-on AWS platform engineering lab built on existing GCP, GKE, Terraform, Kubernetes, and SRE experience. It develops a production-inspired EKS platform in small, observable increments. The selected Region is `us-east-2` (Ohio).
 
-**Status:** The VPC, two public and two private subnets, Internet Gateway, NAT Gateway, EKS control plane, and one managed node group in each Availability Zone are running. The EKS cluster and both node groups were verified `ACTIVE` in AWS. Private RDS PostgreSQL and ElastiCache Valkey were applied locally and verified `available` in AWS. The S3 state bucket and separate GitHub Actions plan/apply IAM identities are also in place. [Docmost](deploy/docmost/README.md) is deployed with one ready replica and an internal `ClusterIP` Service; it has no public ingress. GitHub OIDC is unavailable because the project's service control policy denies IAM identity-provider creation, so Actions currently uses access keys stored in GitHub secrets.
+**Status:** The VPC, two public and two private subnets, Internet Gateway, NAT Gateway, EKS control plane, and one managed node group in each Availability Zone are running. The EKS cluster and both node groups were verified `ACTIVE` in AWS. Private RDS PostgreSQL and ElastiCache Valkey were applied locally and verified `available` in AWS. The S3 state bucket and separate GitHub Actions plan/apply IAM identities are also in place. The AWS Load Balancer Controller has two ready pods and an `alb` IngressClass. [Docmost](deploy/docmost/README.md) is deployed with one ready replica and an internal `ClusterIP` Service; its Ingress manifest is prepared but no public ALB exists yet. GitHub OIDC is unavailable because the project's service control policy denies IAM identity-provider creation, so Actions currently uses access keys stored in GitHub secrets.
 
 ## Architecture
 
@@ -17,6 +17,7 @@ flowchart LR
     subgraph aws[AWS project]
         iam[Separate IAM users and policies<br/>for plan and apply: deployed]
         eksroles[EKS cluster, node, and VPC CNI IAM roles]
+        lbcrole[Load Balancer Controller IAM role]
         state[S3 Terraform state bucket<br/>versioning and encryption deployed<br/>lockfile configured for platform]
 
         subgraph region[Selected Region: us-east-2]
@@ -40,6 +41,7 @@ flowchart LR
                 rds[Amazon RDS PostgreSQL<br/>private, single instance: available]
                 valkey[Amazon ElastiCache Valkey<br/>private, single node: available]
                 docmost[Docmost pod and ClusterIP Service<br/>one ready replica; private]
+                lbc[AWS Load Balancer Controller<br/>two ready pods; alb IngressClass]
             end
         end
     end
@@ -49,10 +51,12 @@ flowchart LR
     iam --> vpc
     iam --> eksroles
     eksroles --> ekscontrol
+    lbcrole -. Pod Identity .-> lbc
     ekscontrol --> node1 & node2
     node1 --> priv1
     node2 --> priv2
     node1 & node2 -. eligible scheduling .-> docmost
+    node1 & node2 -. eligible scheduling .-> lbc
     docmost --> rds & valkey
     igw --> prt
     prt --> pub1 & pub2
@@ -64,7 +68,7 @@ flowchart LR
     r1 & r2 --> nat
 ```
 
-The public subnets have an Internet Gateway route but do not automatically assign public IPv4 addresses. The NAT Gateway resides in public subnet 1 and provides outbound internet access to both private subnets; it does not allow unsolicited inbound connections. The EKS control plane is AWS-managed outside the VPC, while its worker nodes and the managed data services use private subnets. IAM users and roles are global AWS resources; the state bucket is Regional and outside the VPC. RDS stores its generated master password in AWS Secrets Manager, which is a Regional managed service outside the VPC.
+The public subnets have an Internet Gateway route and load balancer discovery tags but do not automatically assign public IPv4 addresses. The NAT Gateway resides in public subnet 1 and provides outbound internet access to both private subnets; it does not allow unsolicited inbound connections. The EKS control plane is AWS-managed outside the VPC, while its worker nodes and the managed data services use private subnets. IAM users and roles are global AWS resources; the state bucket is Regional and outside the VPC. RDS stores its generated master password in AWS Secrets Manager, which is a Regional managed service outside the VPC.
 
 ## Technology Stack
 
@@ -75,6 +79,7 @@ The public subnets have an Internet Gateway route but do not automatically assig
 | IAM and GitHub Actions secrets | Separate programmatic plan and apply identities |
 | VPC, subnets, routes, Internet Gateway | Two-zone network foundation |
 | Amazon EKS and EC2 managed node groups | Kubernetes control plane and private worker nodes across two Availability Zones |
+| AWS Load Balancer Controller | Deployed with Pod Identity; will reconcile an ALB when Docmost's Ingress is applied |
 | Amazon RDS for PostgreSQL | Private, encrypted single-instance application database |
 | Amazon ElastiCache for Valkey | Private, encrypted single-node application cache with TLS and AUTH |
 | GitHub Actions | Validate and fingerprint same-repository PR plans; compare and apply after merge |
@@ -167,7 +172,7 @@ terraform validate
 terraform plan
 ```
 
-Review the plan before merging. The data services were applied locally; Docmost was deployed separately with the [Helm and Kustomize instructions](deploy/docmost/README.md).
+Review the plan before merging. The data services were applied locally; Docmost and the AWS Load Balancer Controller were deployed separately using the [Helm and Kustomize instructions](deploy/docmost/README.md). The public ALB has not been created; the Docmost Ingress still needs to be applied.
 
 ## Observability & Reliability
 
@@ -192,7 +197,7 @@ The deployed data services use separate security groups, private endpoints, encr
 
 ## Cost Considerations
 
-The running NAT Gateway, public IPv4 address, EKS control plane, two EC2 worker nodes, their EBS volumes, RDS instance, and ElastiCache node incur charges; NAT data processing and CloudWatch usage can add more. These draw down the project's available credits, currently reported as $160. Destroy lab resources when they are not in use. The architecture must **not** be assumed to fit within Free Tier benefits; check AWS Settings → Billing and current AWS prices before enabling each component.
+The running NAT Gateway, public IPv4 address, EKS control plane, two EC2 worker nodes, their EBS volumes, RDS instance, and ElastiCache node incur charges; NAT data processing and CloudWatch usage can add more. Applying the prepared Ingress will create an ALB with its own hourly and usage charges. These draw down the project's available credits, currently reported as $160. Destroy lab resources when they are not in use. The architecture must **not** be assumed to fit within Free Tier benefits; check AWS Settings → Billing and current AWS prices before enabling each component.
 
 ## Teardown
 

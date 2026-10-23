@@ -65,7 +65,7 @@ helm repo add eks https://aws.github.io/eks-charts
 helm repo update eks
 helm upgrade --install aws-load-balancer-controller eks/aws-load-balancer-controller \
   --namespace kube-system \
-  --version 1.14.0 \
+  --version 1.14.1 \
   --set clusterName="$CLUSTER" \
   --set region="$REGION" \
   --set vpcId="$VPC_ID" \
@@ -74,7 +74,7 @@ helm upgrade --install aws-load-balancer-controller eks/aws-load-balancer-contro
 kubectl -n kube-system rollout status deployment/aws-load-balancer-controller --timeout=180s
 ```
 
-The pinned AWS Helm chart `1.14.0` packages controller `v2.14.1`; the matching controller IAM actions are maintained in Terraform. Region and VPC are explicit so the controller does not need node metadata access. EKS Pod Identity Agent is already configured as an EKS add-on, and Terraform creates the controller's Pod Identity association.
+The pinned AWS Helm chart `1.14.1` packages controller `v2.14.1`; the matching controller IAM actions are maintained in Terraform. Region and VPC are explicit so the controller does not need node metadata access. EKS Pod Identity Agent is already configured as an EKS add-on, and Terraform creates the controller's Pod Identity association.
 
 Kustomize creates only the `docmost` namespace and runtime Secret; Helm owns the application Deployment, Service, and Ingress:
 
