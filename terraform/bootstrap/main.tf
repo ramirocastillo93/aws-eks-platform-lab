@@ -267,6 +267,15 @@ data "aws_iam_policy_document" "apply_eks" {
   }
 
   statement {
+    sid = "ManageLabLoadBalancerControllerPolicy"
+    actions = [
+      "iam:CreatePolicy", "iam:DeletePolicy", "iam:CreatePolicyVersion",
+      "iam:DeletePolicyVersion", "iam:SetDefaultPolicyVersion", "iam:TagPolicy", "iam:UntagPolicy"
+    ]
+    resources = ["arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:policy/aws-eks-platform-lab-eks-aws-load-balancer-controller"]
+  }
+
+  statement {
     sid     = "CreateDataServiceLinkedRoles"
     actions = ["iam:CreateServiceLinkedRole"]
     resources = [

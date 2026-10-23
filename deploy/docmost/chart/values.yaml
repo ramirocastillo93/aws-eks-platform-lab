@@ -5,10 +5,16 @@ image:
   tag: "0.96.0"
   pullPolicy: IfNotPresent
 
-# Works with the documented local port-forward. Set the external HTTPS URL
-# when an ingress/reverse proxy is added.
+# Replace with the ALB URL (or your HTTPS domain) after the Ingress is created.
 appUrl: "http://localhost:3000"
 runtimeSecretName: docmost-runtime
+
+ingress:
+  enabled: true
+  # Optional DNS host. Leave empty to use the ALB's assigned DNS name directly.
+  host: ""
+  # Optional ACM certificate ARN in the selected Region. When set, HTTP redirects to HTTPS.
+  certificateArn: ""
 
 service:
   type: ClusterIP
