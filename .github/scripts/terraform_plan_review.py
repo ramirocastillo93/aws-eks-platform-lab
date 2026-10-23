@@ -23,7 +23,6 @@ def tree_sha():
 PLAN_SECTIONS = (
     "resource_changes",
     "output_changes",
-    "resource_drift",
     "deferred_changes",
     "checks",
 )
@@ -39,15 +38,25 @@ def _canonical_value(value):
 
 
 def plan_fingerprints_from_json(plan):
-    """Hash Terraform's actionable plan sections, including sensitive values.
+    """Hash Terraform's planned actions, including sensitive planned values.
 
     The raw values never enter logs or review metadata; only section digests do.
-    Terraform plan JSON contains other state and representation details that can
-    change between equivalent plans, so those are deliberately excluded.
+    Refresh-only drift and no-op entries are not applied and may differ between
+    the PR and merge runs, so they are deliberately excluded.
     """
     fingerprints = {}
     for section in PLAN_SECTIONS:
         value = plan.get(section, [] if section != "output_changes" else {})
+        if section == "resource_changes":
+            value = [
+                item for item in value
+                if item["change"]["actions"] != ["no-op"]
+            ]
+        elif section == "output_changes":
+            value = {
+                name: change for name, change in value.items()
+                if change["actions"] != ["no-op"]
+            }
         value = _canonical_value(value)
         # These sections are collections whose element ordering is incidental.
         # Preserve nested arrays because Terraform uses action/list order to
@@ -77,7 +86,7 @@ def backend_fingerprint():
 
 def write_metadata(path):
     metadata = {
-        "schema": 2,
+        "schema": 3,
         "pr": int(os.environ["PR_NUMBER"]),
         "head_sha": os.environ["PR_HEAD_SHA"],
         "tree_sha": tree_sha(),
@@ -171,7 +180,7 @@ def find_review():
                 raise ValueError("Unexpected plan review artifact contents")
             metadata = json.loads(bundle.read("plan-review.json"))
         if (
-            metadata.get("schema") == 2
+            metadata.get("schema") == 3
             and metadata.get("pr") == pr
             and metadata.get("head_sha") == head_sha
             and metadata.get("tree_sha") == expected_tree
@@ -188,7 +197,7 @@ def find_review():
 
 def verify_plan(path):
     metadata = json.loads(Path("reviewed-plan.json").read_text())
-    if metadata.get("schema") != 2:
+    if metadata.get("schema") != 3:
         raise ValueError("The reviewed plan uses an outdated fingerprint format; create a new PR plan")
     if metadata["tree_sha"] != tree_sha():
         raise ValueError("The checked-out source tree differs from the reviewed PR")

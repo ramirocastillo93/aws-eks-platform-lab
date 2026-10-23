@@ -45,6 +45,45 @@ class PlanFingerprintsTest(unittest.TestCase):
             plan_fingerprints_from_json(refreshed),
         )
 
+    def test_ignores_refreshed_no_op_values_and_observed_drift(self):
+        original = sample_plan()
+        refreshed = copy.deepcopy(original)
+        original["resource_changes"].append(
+            {
+                "address": "aws_db_instance.lab",
+                "change": {
+                    "actions": ["no-op"],
+                    "before": {"status": "available"},
+                    "after": {"status": "available"},
+                },
+            }
+        )
+        refreshed["resource_changes"].append(
+            {
+                "address": "aws_db_instance.lab",
+                "change": {
+                    "actions": ["no-op"],
+                    "before": {"status": "backing-up"},
+                    "after": {"status": "backing-up"},
+                },
+            }
+        )
+        original["resource_drift"] = [
+            {"address": "aws_db_instance.lab", "change": {"actions": ["update"]}}
+        ]
+        refreshed["resource_drift"] = []
+        original["output_changes"]["endpoint"] = {
+            "actions": ["no-op"], "before": "old", "after": "old"
+        }
+        refreshed["output_changes"]["endpoint"] = {
+            "actions": ["no-op"], "before": "new", "after": "new"
+        }
+
+        self.assertEqual(
+            plan_fingerprints_from_json(original),
+            plan_fingerprints_from_json(refreshed),
+        )
+
     def test_sensitive_resource_value_changes_fingerprint_without_logging_value(self):
         original = plan_fingerprints_from_json(sample_plan())
         changed_plan = sample_plan()
