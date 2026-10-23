@@ -24,3 +24,14 @@ variable "eks_admin_role_name" {
   type        = string
   default     = "AccountFullAccessRole"
 }
+
+variable "docmost_valkey_auth_token" {
+  description = "Valkey AUTH token supplied as TF_VAR_docmost_valkey_auth_token; Terraform state will contain this value."
+  type        = string
+  sensitive   = true
+
+  validation {
+    condition     = length(var.docmost_valkey_auth_token) >= 16 && length(var.docmost_valkey_auth_token) <= 128 && can(regex("^[A-Za-z0-9!&#$^<>-]+$", var.docmost_valkey_auth_token))
+    error_message = "Use 16-128 printable ASCII characters, only letters, digits, or ! & # $ ^ < > -."
+  }
+}

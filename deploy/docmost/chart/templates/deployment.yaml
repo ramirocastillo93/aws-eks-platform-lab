@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "docmost.fullname" . }}
+  labels:
+    {{- include "docmost.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "docmost.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "docmost.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      containers:
+        - name: docmost
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          env:
+            - name: APP_URL
+              value: {{ required "appUrl must be set to the external Docmost URL" .Values.appUrl | quote }}
+          envFrom:
+            - secretRef:
+                name: {{ .Values.runtimeSecretName }}
+          startupProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 10
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: uploads
+              mountPath: /app/data/storage
+      volumes:
+        - name: uploads
+          {{- if eq .Values.storage.type "emptyDir" }}
+          emptyDir:
+            sizeLimit: {{ .Values.storage.size }}
+          {{- else }}
+          {{- fail "this lab chart currently supports only storage.type=emptyDir" }}
+          {{- end }}
