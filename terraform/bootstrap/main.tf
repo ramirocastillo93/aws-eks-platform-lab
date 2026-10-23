@@ -52,6 +52,63 @@ resource "aws_iam_user" "apply" {
   name = "aws-eks-platform-lab-terraform-apply"
 }
 
+data "aws_iam_policy_document" "read_data_services" {
+  statement {
+    sid = "ReadDataServices"
+    actions = [
+      "rds:Describe*", "rds:ListTagsForResource",
+      "elasticache:Describe*", "elasticache:List*"
+    ]
+    resources = ["*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestedRegion"
+      values   = [var.aws_region]
+    }
+  }
+
+  statement {
+    sid       = "ReadDataServiceLogGroups"
+    actions   = ["logs:DescribeLogGroups"]
+    resources = ["*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestedRegion"
+      values   = [var.aws_region]
+    }
+  }
+
+  statement {
+    sid       = "ReadDataServiceLogGroupTags"
+    actions   = ["logs:ListTagsForResource"]
+    resources = ["arn:${data.aws_partition.current.partition}:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/elasticache/aws-eks-platform-lab-docmost"]
+  }
+
+  statement {
+    sid       = "ReadEksOptimizedAmiVersion"
+    actions   = ["ssm:GetParameter"]
+    resources = ["arn:${data.aws_partition.current.partition}:ssm:${var.aws_region}::parameter/aws/service/eks/optimized-ami/*"]
+  }
+}
+
+resource "aws_iam_policy" "read_data_services" {
+  name        = "aws-eks-platform-lab-terraform-read-data-services"
+  description = "Read existing data services and EKS AMI metadata during Terraform planning."
+  policy      = data.aws_iam_policy_document.read_data_services.json
+}
+
+resource "aws_iam_user_policy_attachment" "plan_read_data_services" {
+  user       = aws_iam_user.plan.name
+  policy_arn = aws_iam_policy.read_data_services.arn
+}
+
+resource "aws_iam_user_policy_attachment" "apply_read_data_services" {
+  user       = aws_iam_user.apply.name
+  policy_arn = aws_iam_policy.read_data_services.arn
+}
+
 data "aws_iam_policy_document" "plan" {
   statement {
     sid       = "ReadStateBucket"
@@ -86,21 +143,6 @@ data "aws_iam_policy_document" "plan" {
   statement {
     sid       = "ReadEks"
     actions   = ["eks:Describe*", "eks:List*"]
-    resources = ["*"]
-
-    condition {
-      test     = "StringEquals"
-      variable = "aws:RequestedRegion"
-      values   = [var.aws_region]
-    }
-  }
-
-  statement {
-    sid = "ReadDataServices"
-    actions = [
-      "rds:Describe*", "rds:ListTagsForResource",
-      "elasticache:Describe*", "elasticache:List*"
-    ]
     resources = ["*"]
 
     condition {
