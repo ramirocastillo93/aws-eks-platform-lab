@@ -43,6 +43,18 @@ data "aws_iam_policy_document" "load_balancer_controller" {
   }
 
   statement {
+    sid       = "DiscoverAcmCertificatesByHost"
+    actions   = ["acm:ListCertificates"]
+    resources = ["*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestedRegion"
+      values   = [var.aws_region]
+    }
+  }
+
+  statement {
     sid       = "CreateElasticLoadBalancingServiceLinkedRole"
     actions   = ["iam:CreateServiceLinkedRole"]
     resources = ["*"]

@@ -5,15 +5,14 @@ image:
   tag: "0.96.0"
   pullPolicy: IfNotPresent
 
-# Replace with the ALB URL (or your HTTPS domain) after the Ingress is created.
-appUrl: "http://localhost:3000"
+appUrl: "https://docmost-checkr.nakamalabs.io"
 runtimeSecretName: docmost-runtime
 
 ingress:
   enabled: true
-  # Optional DNS host. Leave empty to use the ALB's assigned DNS name directly.
-  host: ""
-  # Optional ACM certificate ARN in the selected Region. When set, HTTP redirects to HTTPS.
+  host: "docmost-checkr.nakamalabs.io"
+  # Optional ACM certificate ARN override. When empty, the controller discovers
+  # an issued certificate matching ingress.host in the selected Region.
   certificateArn: ""
 
 service:

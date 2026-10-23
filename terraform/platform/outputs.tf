@@ -42,3 +42,13 @@ output "docmost_checkr_name_servers" {
   description = "Name servers to delegate docmost-checkr.nakamalabs.io to Route 53."
   value       = aws_route53_zone.docmost_checkr.name_servers
 }
+
+output "docmost_hostname" {
+  description = "HTTPS hostname routed to the Docmost ALB."
+  value       = local.docmost_hostname
+}
+
+output "docmost_certificate_arn" {
+  description = "Validated ACM certificate ARN for the Docmost ALB HTTPS listener."
+  value       = aws_acm_certificate_validation.docmost.certificate_arn
+}
