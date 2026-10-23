@@ -32,3 +32,13 @@ output "load_balancer_controller_role_arn" {
   description = "Pod Identity role for the AWS Load Balancer Controller."
   value       = aws_iam_role.load_balancer_controller.arn
 }
+
+output "docmost_checkr_hosted_zone_id" {
+  description = "Route 53 public hosted zone ID for docmost-checkr.nakamalabs.io."
+  value       = aws_route53_zone.docmost_checkr.zone_id
+}
+
+output "docmost_checkr_name_servers" {
+  description = "Name servers to delegate docmost-checkr.nakamalabs.io to Route 53."
+  value       = aws_route53_zone.docmost_checkr.name_servers
+}

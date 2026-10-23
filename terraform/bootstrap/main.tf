@@ -157,6 +157,15 @@ data "aws_iam_policy_document" "plan" {
     actions   = ["iam:Get*", "iam:List*"]
     resources = ["*"]
   }
+
+  statement {
+    sid = "ReadRoute53HostedZone"
+    actions = [
+      "route53:GetHostedZone",
+      "route53:ListTagsForResource"
+    ]
+    resources = ["arn:${data.aws_partition.current.partition}:route53:::hostedzone/*"]
+  }
 }
 
 data "aws_iam_policy_document" "apply" {
@@ -192,6 +201,26 @@ data "aws_iam_policy_document" "apply" {
     }
   }
 
+  statement {
+    sid       = "CreateRoute53HostedZone"
+    actions   = ["route53:CreateHostedZone"]
+    resources = ["*"]
+  }
+
+  statement {
+    sid = "ManageRoute53HostedZone"
+    actions = [
+      "route53:DeleteHostedZone",
+      "route53:ChangeTagsForResource"
+    ]
+    resources = ["arn:${data.aws_partition.current.partition}:route53:::hostedzone/*"]
+  }
+
+  statement {
+    sid       = "WaitForRoute53Change"
+    actions   = ["route53:GetChange"]
+    resources = ["arn:${data.aws_partition.current.partition}:route53:::change/*"]
+  }
 }
 
 data "aws_iam_policy_document" "apply_eks" {
